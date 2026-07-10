@@ -5,4 +5,5 @@ docs/superpowers/
 logs/
 data/
 dist/
+artifacts/
 .DS_Store

@@ -1228,7 +1228,7 @@ function handleViewportWheel(event) {
 }
 
 function zoomCanvas(event) {
-  const factor = wheelZoomFactor(event);
+  const factor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
   const nextScale = clamp(cam.scale * factor, 0.25, 2.2);
   const wx = (event.clientX - cam.x) / cam.scale;
   const wy = (event.clientY - cam.y) / cam.scale;
@@ -1237,16 +1237,6 @@ function zoomCanvas(event) {
   cam.y = event.clientY - wy * nextScale;
   hidePill();
   scheduleBoardSave();
-}
-
-function wheelZoomFactor(event) {
-  const unit = event.deltaMode === WheelEvent.DOM_DELTA_LINE
-    ? 16
-    : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
-      ? window.innerHeight
-      : 1;
-  const delta = clamp(event.deltaY * unit, -50, 50);
-  return Math.exp(-delta * 0.002);
 }
 
 function startPan(event) {

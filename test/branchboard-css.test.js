@@ -83,15 +83,6 @@ describe("Branchboard wheel interactions", () => {
     assert.match(appVue, /event\.preventDefault\(\)/);
     assert.match(appVue, /zoomCanvas\(event\)/);
   });
-
-  it("uses bounded continuous wheel deltas for precise trackpad zoom", () => {
-    assert.match(appVue, /const factor = wheelZoomFactor\(event\)/);
-    assert.match(appVue, /function wheelZoomFactor\(event\)/);
-    assert.match(appVue, /clamp\(event\.deltaY \* unit, -50, 50\)/);
-    assert.match(appVue, /Math\.exp\(-delta \* 0\.002\)/);
-    assert.match(appVue, /WheelEvent\.DOM_DELTA_LINE/);
-    assert.match(appVue, /WheelEvent\.DOM_DELTA_PAGE/);
-  });
 });
 
 describe("Branchboard accessibility hardening", () => {
