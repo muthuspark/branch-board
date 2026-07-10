@@ -90,11 +90,13 @@ export function createApp({ env = process.env, fetchImpl = fetch } = {}) {
     const startedAt = Date.now();
     const question = String(req.body?.question ?? "").trim();
     const lineage = String(req.body?.lineage ?? "").trim();
+    const history = normalizeChatHistory(req.body?.history);
 
     await log(logger, "chat_request_start", {
       requestId,
       questionLength: question.length,
       lineageLength: lineage.length,
+      historyLength: history.length,
       model: MODEL
     });
 
@@ -125,7 +127,7 @@ export function createApp({ env = process.env, fetchImpl = fetch } = {}) {
           authorization: `Bearer ${env.DEEPSEEK_API_KEY}`,
           "content-type": "application/json"
         },
-        body: JSON.stringify(buildDeepSeekPayload(question, lineage))
+        body: JSON.stringify(buildDeepSeekPayload(question, lineage, history))
       });
 
       if (!upstream.ok) {
@@ -237,7 +239,18 @@ async function readResponseBody(response) {
   return text.slice(0, 2000);
 }
 
-function buildDeepSeekPayload(question, lineage) {
+function normalizeChatHistory(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .slice(-20)
+    .map(message => ({
+      role: message?.role === "assistant" ? "assistant" : "user",
+      content: String(message?.content ?? "").trim().slice(0, 8000)
+    }))
+    .filter(message => message.content);
+}
+
+function buildDeepSeekPayload(question, lineage, history = []) {
   const system = [
     "You are an experienced teacher inside a branching idea-canvas.",
     "Explain clearly, crisply, and practically so readers leave with a concrete next question.",
@@ -252,6 +265,7 @@ function buildDeepSeekPayload(question, lineage) {
     stream: true,
     messages: [
       { role: "system", content: system },
+      ...history,
       { role: "user", content: question }
     ]
   };

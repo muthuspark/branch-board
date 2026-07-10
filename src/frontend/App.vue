@@ -86,6 +86,7 @@
         role="group"
         aria-describedby="keyboard-help"
         :aria-label="node.parent ? `${displayNodeLabel(node.id)} about ${trim(node.fromText, 50)}` : `${displayNodeLabel(node.id)}, start here`"
+        :aria-busy="node.pending"
         @pointerdown.capture="focusNode(node.id)"
         @focusin="focusNode(node.id)"
       >
@@ -127,7 +128,9 @@
             @input="handleDraftInput(node, $event)"
             @keydown.enter.exact.prevent="sendQuestion(node)"
           ></textarea>
-          <button class="ask" @click="sendQuestion(node)">Ask</button>
+          <button class="ask" :disabled="node.pending || !node.draft.trim()" @click="sendQuestion(node)">
+            {{ node.pending ? "Thinking" : "Ask" }}
+          </button>
         </div>
       </article>
     </div>
@@ -170,7 +173,7 @@
     aria-labelledby="confirm-title"
     aria-describedby="confirm-message"
     @click.self="resolveConfirm(false)"
-    @keydown.escape.prevent="resolveConfirm(false)"
+    @keydown="handleConfirmKeydown"
   >
     <div class="confirm__panel">
       <h2 id="confirm-title">{{ confirmDialog.title }}</h2>
@@ -196,6 +199,9 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "v
 import { renderAssistantMarkdown } from "../../public/markdown-renderer.js";
 
 const DEFAULT_NODE_W = 440;
+const NODE_GAP = 72;
+const PLACEMENT_COLUMNS = 20;
+const PLACEMENT_ROWS = 20;
 const HUES = [258, 172, 38, 340, 200, 286, 120, 16];
 
 const viewportEl = ref(null);
@@ -235,6 +241,7 @@ let saveTimer = null;
 let pendingSaveSnapshot = null;
 let isRestoringBoard = false;
 let boardTitleBeforeRename = "Untitled board";
+let focusBeforeConfirm = null;
 
 const worldStyle = computed(() => ({
   transform: `translate(${cam.x}px,${cam.y}px) scale(${cam.scale})`
@@ -505,6 +512,7 @@ function restoreBoardState(state) {
       parent: null,
       fromText: savedNode.fromText || null,
       draft: savedNode.draft || "",
+      pending: false,
       messages: Array.isArray(savedNode.messages)
         ? savedNode.messages.map(restoreMessage)
         : [],
@@ -696,13 +704,15 @@ function renderMessageHtml(role, text) {
 
 function createNode({ x, y, parent = null, fromText = null }) {
   const id = `n${++uid}`;
+  const position = findOpenNodePosition(x, y);
   const node = {
     id,
-    x,
-    y,
+    x: position.x,
+    y: position.y,
     parent,
     fromText,
     draft: "",
+    pending: false,
     messages: [],
     children: []
   };
@@ -720,6 +730,54 @@ function createNode({ x, y, parent = null, fromText = null }) {
     });
   }
   return node;
+}
+
+function findOpenNodePosition(preferredX, preferredY) {
+  const width = DEFAULT_NODE_W;
+  const height = Math.min(
+    Math.max(window.innerHeight * 0.8, 320),
+    window.innerHeight - 32
+  );
+  const rowOffsets = [0];
+  for (let row = 1; row <= PLACEMENT_ROWS; row += 1) {
+    rowOffsets.push(row, -row);
+  }
+
+  for (let column = 0; column <= PLACEMENT_COLUMNS; column += 1) {
+    for (const row of rowOffsets) {
+      const candidate = {
+        x: snapToCanvasGrid(preferredX + column * (width + NODE_GAP)),
+        y: snapToCanvasGrid(preferredY + row * (height + NODE_GAP)),
+        width,
+        height
+      };
+      if (nodes.value.every(node => !nodeRectanglesOverlap(candidate, node))) {
+        return { x: candidate.x, y: candidate.y };
+      }
+    }
+  }
+
+  return {
+    x: snapToCanvasGrid(preferredX + (PLACEMENT_COLUMNS + 1) * (width + NODE_GAP)),
+    y: snapToCanvasGrid(preferredY)
+  };
+}
+
+function nodeRectanglesOverlap(candidate, node) {
+  const existing = {
+    x: node.x,
+    y: node.y,
+    width: nodeWidth(node),
+    height: nodeHeight(node)
+  };
+  return candidate.x < existing.x + existing.width + NODE_GAP
+    && candidate.x + candidate.width + NODE_GAP > existing.x
+    && candidate.y < existing.y + existing.height + NODE_GAP
+    && candidate.y + candidate.height + NODE_GAP > existing.y;
+}
+
+function snapToCanvasGrid(value) {
+  return Math.round(value / 24) * 24;
 }
 
 function createRootNode() {
@@ -774,6 +832,7 @@ async function deleteNode(node) {
 function confirmDestructiveAction({ title, message, confirmLabel }) {
   if (confirmDialog.resolve) confirmDialog.resolve(false);
   return new Promise(resolve => {
+    focusBeforeConfirm = document.activeElement;
     confirmDialog.title = title;
     confirmDialog.message = message;
     confirmDialog.confirmLabel = confirmLabel;
@@ -788,6 +847,27 @@ function resolveConfirm(confirmed) {
   confirmDialog.open = false;
   confirmDialog.resolve = null;
   if (resolve) resolve(Boolean(confirmed));
+  nextTick(() => focusBeforeConfirm?.focus?.());
+}
+
+function handleConfirmKeydown(event) {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    resolveConfirm(false);
+    return;
+  }
+  if (event.key !== "Tab") return;
+  const controls = [...event.currentTarget.querySelectorAll("button:not(:disabled)")];
+  if (!controls.length) return;
+  const first = controls[0];
+  const last = controls[controls.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
 }
 
 function createCenteredRoot() {
@@ -796,19 +876,22 @@ function createCenteredRoot() {
 }
 
 function sendQuestion(node) {
+  if (node.pending) return;
   const question = node.draft.trim();
   if (!question) return;
   const requestBoardId = committedBoardId.value;
   const requestNodeId = node.id;
+  const history = conversationFor(node);
   maybeDeriveBoardTitle(question);
   node.draft = "";
+  node.pending = true;
   node.messages.push(plainMessage("user", question));
   const thinking = plainMessage("assistant", "Thinking...", { thinking: true });
   node.messages.push(thinking);
   let receivedAnswer = false;
   scheduleBoardSave();
   nextTick(() => scrollNodeBody(node));
-  streamLLM(question, lineageFor(node), {
+  streamLLM(question, lineageFor(node), history, {
     onDelta(delta) {
       appendMessageTextForBoard(requestBoardId, requestNodeId, thinking.id, delta, {
         replace: !receivedAnswer
@@ -830,6 +913,8 @@ function sendQuestion(node) {
       });
     })
     .finally(() => {
+      const requestNode = nodes.value.find(item => item.id === requestNodeId);
+      if (requestBoardId === committedBoardId.value && requestNode) requestNode.pending = false;
       if (requestBoardId === committedBoardId.value) {
         const activeNode = nodes.value.find(item => item.id === requestNodeId);
         if (activeNode) nextTick(() => scrollNodeBody(activeNode));
@@ -837,12 +922,12 @@ function sendQuestion(node) {
     });
 }
 
-async function streamLLM(question, lineage, { onDelta }) {
+async function streamLLM(question, lineage, history, { onDelta }) {
   try {
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, lineage })
+      body: JSON.stringify({ question, lineage, history })
     });
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
@@ -924,7 +1009,7 @@ function parseStreamPayload(data) {
 async function callLLM(question, lineage) {
   try {
     let answer = "";
-    await streamLLM(question, lineage, {
+    await streamLLM(question, lineage, [], {
       onDelta(delta) {
         answer += delta;
       }
@@ -994,7 +1079,14 @@ function branchFromSelection() {
   });
   hidePill();
   window.getSelection()?.removeAllRanges();
-  centerOn(child, 1);
+  revealNodeForInput(child);
+}
+
+async function revealNodeForInput(node) {
+  await nextTick();
+  centerOn(node, cam.scale);
+  nodeRefs.get(node.id)?.querySelector("textarea")?.focus({ preventScroll: true });
+  scrollNodeBody(node);
 }
 
 function handleSelectionChange() {
@@ -1035,6 +1127,16 @@ function lineageFor(node) {
     cur = nodes.value.find(item => item.id === cur.parent?.id);
   }
   return parts.length ? parts.join("  ->  ") : "";
+}
+
+function conversationFor(node) {
+  return node.messages
+    .filter(message => !message.thinking && !message.error && message.text?.trim())
+    .slice(-20)
+    .map(message => ({
+      role: message.role === "assistant" ? "assistant" : "user",
+      content: message.text.trim()
+    }));
 }
 
 function focusNode(id) {
@@ -1109,7 +1211,7 @@ function handleViewportWheel(event) {
 }
 
 function zoomCanvas(event) {
-  const factor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
+  const factor = wheelZoomFactor(event);
   const nextScale = clamp(cam.scale * factor, 0.25, 2.2);
   const wx = (event.clientX - cam.x) / cam.scale;
   const wy = (event.clientY - cam.y) / cam.scale;
@@ -1118,6 +1220,16 @@ function zoomCanvas(event) {
   cam.y = event.clientY - wy * nextScale;
   hidePill();
   scheduleBoardSave();
+}
+
+function wheelZoomFactor(event) {
+  const unit = event.deltaMode === WheelEvent.DOM_DELTA_LINE
+    ? 16
+    : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+      ? window.innerHeight
+      : 1;
+  const delta = clamp(event.deltaY * unit, -50, 50);
+  return Math.exp(-delta * 0.002);
 }
 
 function startPan(event) {

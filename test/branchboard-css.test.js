@@ -66,11 +66,11 @@ describe("Branchboard cursor affordances", () => {
   });
 
   it("styles the node body scrollbar as an embedded dark control", () => {
-    assert.match(ruleFor(".node__body"), /scrollbar-color\s*:\s*oklch\(59% 0\.006 245\)\s+oklch\(17% 0\.007 245\)/);
+    assert.match(ruleFor(".node__body"), /scrollbar-color\s*:\s*var\(--scrollbar-thumb\)\s+var\(--scrollbar-track\)/);
     assert.match(ruleFor(".node__body::-webkit-scrollbar"), /width\s*:\s*14px/);
-    assert.match(ruleFor(".node__body::-webkit-scrollbar-track"), /background\s*:\s*oklch\(17% 0\.007 245\)/);
-    assert.match(ruleFor(".node__body::-webkit-scrollbar-thumb"), /background\s*:\s*oklch\(59% 0\.006 245\)/);
-    assert.match(ruleFor(".node__body::-webkit-scrollbar-thumb"), /border-radius\s*:\s*999px/);
+    assert.match(ruleFor(".node__body::-webkit-scrollbar-track"), /background\s*:\s*var\(--scrollbar-track\)/);
+    assert.match(ruleFor(".node__body::-webkit-scrollbar-thumb"), /background\s*:\s*var\(--scrollbar-thumb\)/);
+    assert.match(ruleFor(".node__body::-webkit-scrollbar-thumb"), /border-radius\s*:\s*var\(--radius-pill\)/);
   });
 });
 
@@ -82,6 +82,15 @@ describe("Branchboard wheel interactions", () => {
     assert.match(appVue, /event\.target\.closest\("\.node"\)/);
     assert.match(appVue, /event\.preventDefault\(\)/);
     assert.match(appVue, /zoomCanvas\(event\)/);
+  });
+
+  it("uses bounded continuous wheel deltas for precise trackpad zoom", () => {
+    assert.match(appVue, /const factor = wheelZoomFactor\(event\)/);
+    assert.match(appVue, /function wheelZoomFactor\(event\)/);
+    assert.match(appVue, /clamp\(event\.deltaY \* unit, -50, 50\)/);
+    assert.match(appVue, /Math\.exp\(-delta \* 0\.002\)/);
+    assert.match(appVue, /WheelEvent\.DOM_DELTA_LINE/);
+    assert.match(appVue, /WheelEvent\.DOM_DELTA_PAGE/);
   });
 });
 
@@ -146,6 +155,13 @@ describe("Branchboard destructive confirmations", () => {
     assert.match(appVue, /if \(!await confirmDestructiveAction\(\{\s*title: "Delete note"/);
     assert.match(appVue, /confirmLabel: "Delete board"/);
     assert.match(appVue, /confirmLabel: "Delete note"/);
+  });
+
+  it("traps keyboard focus and restores it after the dialog closes", () => {
+    assert.match(appVue, /@keydown="handleConfirmKeydown"/);
+    assert.match(appVue, /focusBeforeConfirm = document\.activeElement/);
+    assert.match(appVue, /event\.key !== "Tab"/);
+    assert.match(appVue, /focusBeforeConfirm\?\.focus\?\.\(\)/);
   });
 });
 
@@ -250,14 +266,16 @@ describe("Branchboard multiple board persistence", () => {
   it("ties chat responses to their originating board and node", () => {
     assert.match(appVue, /const requestBoardId = committedBoardId\.value/);
     assert.match(appVue, /const requestNodeId = node\.id/);
-    assert.match(appVue, /streamLLM\(question, lineageFor\(node\), \{/);
+    assert.match(appVue, /const history = conversationFor\(node\)/);
+    assert.match(appVue, /streamLLM\(question, lineageFor\(node\), history, \{/);
     assert.match(appVue, /appendMessageTextForBoard\(requestBoardId, requestNodeId, thinking\.id/);
     assert.match(appVue, /if \(boardId !== committedBoardId\.value\) return/);
     assert.match(appVue, /const node = nodes\.value\.find\(item => item\.id === nodeId\)/);
   });
 
   it("streams assistant responses instead of waiting for complete JSON", () => {
-    assert.match(appVue, /async function streamLLM\(question, lineage, \{ onDelta \}\)/);
+    assert.match(appVue, /async function streamLLM\(question, lineage, history, \{ onDelta \}\)/);
+    assert.match(appVue, /JSON\.stringify\(\{ question, lineage, history \}\)/);
     assert.match(appVue, /response\.body\.getReader\(\)/);
     assert.match(appVue, /TextDecoder/);
     assert.match(appVue, /parseStreamEvent/);
@@ -272,12 +290,36 @@ describe("Branchboard multiple board persistence", () => {
     assert.doesNotMatch(branchFromSelection, /child\.messages\.push\(plainMessage\("user", pendingSel\.value\.text\)\)/);
     assert.doesNotMatch(branchFromSelection, /callLLM\(/);
     assert.doesNotMatch(branchFromSelection, /Expand on it/);
+    assert.match(branchFromSelection, /revealNodeForInput\(child\)/);
+  });
+
+  it("centers a new branch after render and focuses its prompt without changing zoom", () => {
+    assert.match(appVue, /async function revealNodeForInput\(node\)/);
+    assert.match(appVue, /await nextTick\(\)/);
+    assert.match(appVue, /centerOn\(node, cam\.scale\)/);
+    assert.match(appVue, /querySelector\("textarea"\)\?\.focus\(\{ preventScroll: true \}\)/);
+  });
+
+  it("places new notes on open grid-aligned space without moving existing notes", () => {
+    assert.match(appVue, /const position = findOpenNodePosition\(x, y\)/);
+    assert.match(appVue, /function findOpenNodePosition\(preferredX, preferredY\)/);
+    assert.match(appVue, /nodes\.value\.every\(node => !nodeRectanglesOverlap\(candidate, node\)\)/);
+    assert.match(appVue, /function nodeRectanglesOverlap\(candidate, node\)/);
+    assert.match(appVue, /Math\.round\(value \/ 24\) \* 24/);
+    assert.match(appVue, /const NODE_GAP = 72/);
   });
 
   it("includes selected branch text as context when the user asks from a child node", () => {
     assert.match(appVue, /function lineageFor\(node\)/);
     assert.match(appVue, /node\.fromText/);
     assert.match(appVue, /Selected text: \$\{trim\(node\.fromText, 160\)\}/);
+  });
+
+  it("includes prior messages from the same note as conversation context", () => {
+    assert.match(appVue, /function conversationFor\(node\)/);
+    assert.match(appVue, /\.filter\(message => !message\.thinking && !message\.error/);
+    assert.match(appVue, /\.slice\(-20\)/);
+    assert.match(appVue, /content: message\.text\.trim\(\)/);
   });
 
   it("persists canonical message fields and regenerates message HTML", () => {
@@ -295,6 +337,16 @@ describe("Branchboard model failures", () => {
     assert.doesNotMatch(appVue, /function mockAnswer/);
     assert.doesNotMatch(appVue, /At its core,/);
     assert.match(appVue, /I couldn't get an answer\. Please try again\./);
+  });
+});
+
+describe("Branchboard answer loading state", () => {
+  it("prevents overlapping requests within one note and exposes its busy state", () => {
+    assert.match(appVue, /:aria-busy="node\.pending"/);
+    assert.match(appVue, /:disabled="node\.pending \|\| !node\.draft\.trim\(\)"/);
+    assert.match(appVue, /if \(node\.pending\) return/);
+    assert.match(appVue, /node\.pending = true/);
+    assert.match(appVue, /requestNode\.pending = false/);
   });
 });
 
@@ -403,9 +455,9 @@ describe("Branchboard token coverage", () => {
   });
 
   it("uses semantic typography tokens for dense product UI text", () => {
-    assert.match(style, /--type-body:\s*0\.875rem/);
-    assert.match(style, /--type-label:\s*0\.78125rem/);
-    assert.match(style, /--type-mono:\s*0\.6875rem/);
+    assert.match(style, /--type-body:\s*1rem/);
+    assert.match(style, /--type-label:\s*0\.875rem/);
+    assert.match(style, /--type-mono:\s*0\.75rem/);
     assert.match(ruleFor(".msg"), /font-size\s*:\s*var\(--type-body\)/);
     assert.match(ruleFor(".msg"), /line-height\s*:\s*var\(--leading-body\)/);
     assert.match(ruleFor(".node__id"), /font-variant-numeric\s*:\s*tabular-nums/);

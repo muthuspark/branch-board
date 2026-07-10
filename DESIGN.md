@@ -23,34 +23,43 @@ colors:
   accent-ink: "oklch(16% 0.02 78)"
   edge: "oklch(59% 0.055 78)"
   error-text: "oklch(82% 0.06 28)"
+  error-line: "oklch(47% 0.05 28)"
+  danger-surface: "oklch(20% 0.018 28)"
+  danger-line: "oklch(45% 0.04 28)"
+  danger-text: "oklch(84% 0.04 28)"
+  danger-text-muted: "oklch(76% 0.038 28)"
+  scrollbar-track: "oklch(17% 0.007 245)"
+  scrollbar-line: "oklch(25% 0.007 245)"
+  scrollbar-thumb: "oklch(59% 0.006 245)"
+  scrollbar-thumb-hover: "oklch(68% 0.006 245)"
 typography:
   body:
     fontFamily: "Inter, -apple-system, BlinkMacSystemFont, Segoe UI, system-ui, sans-serif"
-    fontSize: "0.875rem"
+    fontSize: "1rem"
     fontWeight: 400
-    lineHeight: 1.55
+    lineHeight: 1.65
     letterSpacing: "0"
   display:
     fontFamily: "JetBrains Mono, SFMono-Regular, Consolas, monospace"
-    fontSize: "1rem"
+    fontSize: "1.125rem"
     fontWeight: 600
     lineHeight: 1.2
     letterSpacing: "0"
   label:
     fontFamily: "JetBrains Mono, SFMono-Regular, Consolas, monospace"
-    fontSize: "0.78125rem"
+    fontSize: "0.875rem"
     fontWeight: 600
     lineHeight: 1.2
     letterSpacing: "0"
   control:
     fontFamily: "Inter, -apple-system, BlinkMacSystemFont, Segoe UI, system-ui, sans-serif"
-    fontSize: "0.8125rem"
+    fontSize: "0.875rem"
     fontWeight: 500
     lineHeight: 1.35
     letterSpacing: "0"
   mono:
     fontFamily: "JetBrains Mono, SFMono-Regular, Consolas, monospace"
-    fontSize: "0.6875rem"
+    fontSize: "0.75rem"
     fontWeight: 400
     lineHeight: 1.2
     fontVariantNumeric: "tabular-nums"
@@ -59,6 +68,7 @@ rounded:
   sm: "2px"
   md: "2px"
   lg: "2px"
+  pill: "999px"
 spacing:
   xs: "4px"
   sm: "8px"
@@ -138,12 +148,13 @@ The palette is restrained graphite with a single amber accent. Inactive surfaces
 **Character:** Body text prioritizes reading stamina. Labels, controls, node IDs, toolbar status, and technical metadata use mono with tabular numerals to make the product feel instrumented and precise.
 
 ### Hierarchy
-- **Display** (600, 1rem, 1.2): Compact workspace identifiers only.
-- **Body** (400, 0.875rem, 1.55): Chat message content.
-- **Control** (500-600, 0.8125rem, 1.35): Inputs and standard buttons.
-- **Label** (600, 0.78125rem, 1.2): Primary commands and compact panel labels.
-- **Caption** (400, 0.71875rem, 1.35-1.55): Hints and minor status text.
-- **Mono** (400, 0.6875rem, 1.2): Node IDs, status, toolbar labels, and technical metadata.
+- **Display** (600, 1.125rem, 1.2): Compact workspace identifiers only.
+- **Body** (400, 1rem, 1.65): Chat message content and long-form prose.
+- **Subheading** (600, 1.125rem, 1.3): User prompts and minor Markdown headings.
+- **Heading** (600, 1.25rem, 1.3): Primary Markdown headings.
+- **Control** (500-600, 0.875rem, 1.35): Inputs and standard buttons.
+- **Label** (600, 0.875rem, 1.2): Primary commands and compact panel labels.
+- **Caption / Mono** (400-500, 0.75rem, 1.2-1.55): Node IDs, status, hints, and technical metadata.
 
 ### Named Rules
 
