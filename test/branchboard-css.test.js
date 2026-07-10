@@ -75,13 +75,13 @@ describe("Branchboard cursor affordances", () => {
 });
 
 describe("Branchboard wheel interactions", () => {
-  it("zooms the canvas only when wheel events start outside notes", () => {
-    assert.match(appVue, /@wheel="handleViewportWheel"/);
-    assert.doesNotMatch(appVue, /@wheel\.prevent="zoomCanvas"/);
-    assert.match(appVue, /function handleViewportWheel\(event\)/);
-    assert.match(appVue, /event\.target\.closest\("\.node"\)/);
-    assert.match(appVue, /event\.preventDefault\(\)/);
-    assert.match(appVue, /zoomCanvas\(event\)/);
+  it("disables wheel and pinch zoom while retaining explicit zoom controls", () => {
+    assert.doesNotMatch(appVue, /@wheel/);
+    assert.doesNotMatch(appVue, /function handleViewportWheel/);
+    assert.doesNotMatch(appVue, /function zoomCanvas/);
+    assert.match(appVue, /id="btn-zoomout"[\s\S]*@click="zoomBy\(1 \/ 1\.15\)"/);
+    assert.match(appVue, /id="btn-zoomin"[\s\S]*@click="zoomBy\(1\.15\)"/);
+    assert.match(appVue, /use <b>− \/ \+<\/b> to zoom/);
   });
 });
 
@@ -372,7 +372,7 @@ describe("Branchboard plain-language copy", () => {
     assert.doesNotMatch(appVue, />Delete board<\/button>/);
     assert.match(appVue, /displayNodeLabel\(node\.id\)/);
     assert.match(appVue, /<b>Drag<\/b> empty space to move around/);
-    assert.match(appVue, /<b>Scroll<\/b> empty space to zoom/);
+    assert.match(appVue, /use <b>− \/ \+<\/b> to zoom/);
     assert.doesNotMatch(appVue, /Root thread|New root|Fit all|deepseek v4|local demo|Branch on this|pan the canvas|card's header/i);
   });
 });

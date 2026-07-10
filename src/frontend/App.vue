@@ -57,7 +57,6 @@
     @pointermove="panCanvas"
     @pointerup="endPan"
     @pointercancel="endPan"
-    @wheel="handleViewportWheel"
     @dblclick="createNodeFromDoubleClick"
   >
     <div id="world" ref="worldEl" :style="worldStyle">
@@ -187,7 +186,7 @@
     </div>
   </div>
 
-  <div id="hint"><b>Drag</b> empty space to move around · <b>Scroll</b> empty space to zoom · scroll notes to read</div>
+  <div id="hint"><b>Drag</b> empty space to move around · use <b>− / +</b> to zoom · scroll notes to read</div>
 </template>
 
 <script setup>
@@ -1218,24 +1217,6 @@ function resetView() {
 
 function zoomBy(factor) {
   cam.scale = clamp(cam.scale * factor, 0.25, 2.2);
-  scheduleBoardSave();
-}
-
-function handleViewportWheel(event) {
-  if (event.target.closest(".node")) return;
-  event.preventDefault();
-  zoomCanvas(event);
-}
-
-function zoomCanvas(event) {
-  const factor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
-  const nextScale = clamp(cam.scale * factor, 0.25, 2.2);
-  const wx = (event.clientX - cam.x) / cam.scale;
-  const wy = (event.clientY - cam.y) / cam.scale;
-  cam.scale = nextScale;
-  cam.x = event.clientX - wx * nextScale;
-  cam.y = event.clientY - wy * nextScale;
-  hidePill();
   scheduleBoardSave();
 }
 

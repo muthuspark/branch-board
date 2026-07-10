@@ -40,11 +40,16 @@ try {
     };
   });
 
+  const transformBeforeWheel = await page.$eval("#world", element => element.style.transform);
   await page.mouse.move(400, 400);
-  for (let index = 0; index < 12; index += 1) await page.mouse.wheel({ deltaY: -50 });
-  for (let index = 0; index < 24; index += 1) await page.mouse.wheel({ deltaY: 50 });
-  for (let index = 0; index < 12; index += 1) await page.mouse.wheel({ deltaY: -50 });
+  await page.mouse.wheel({ deltaY: -200 });
+  await page.keyboard.down("Control");
+  await page.mouse.wheel({ deltaY: 200 });
+  await page.keyboard.up("Control");
+  const transformAfterWheel = await page.$eval("#world", element => element.style.transform);
+
   await page.click("#btn-zoomout");
+  const transformAfterButton = await page.$eval("#world", element => element.style.transform);
   await page.click("#btn-zoomin");
   const toolbar = await readToolbar();
 
@@ -57,6 +62,8 @@ try {
   assert.equal(toolbar.buttonsOnScreen, true, "every canvas control must remain on-screen after zooming");
   assert.equal(toolbar.buttonCount, 4, "canvas toolbar must expose all four controls");
   assert.deepEqual(toolbar.labels, ["Show all", "Smaller", "Bigger", "Center"]);
+  assert.equal(transformAfterWheel, transformBeforeWheel, "wheel and pinch gestures must not zoom the canvas");
+  assert.notEqual(transformAfterButton, transformBeforeWheel, "zoom buttons must still change the canvas scale");
 
   console.log(JSON.stringify({ baseUrl, screenshotPath, toolbar }, null, 2));
 } finally {
