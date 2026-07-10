@@ -541,6 +541,23 @@ function restoreBoardState(state) {
     return;
   }
   focusNode(nodes.value[0].id);
+  nextTick(ensureRestoredBoardVisible);
+}
+
+function ensureRestoredBoardVisible() {
+  if (!nodes.value.length) return;
+  if (cam.scale <= 0.35) {
+    centerOn(nodes.value[0], 0.75);
+    return;
+  }
+  const hasVisibleNode = nodes.value.some(node => {
+    const left = cam.x + node.x * cam.scale;
+    const top = cam.y + node.y * cam.scale;
+    const right = left + nodeWidth(node) * cam.scale;
+    const bottom = top + nodeHeight(node) * cam.scale;
+    return right > 0 && bottom > 0 && left < window.innerWidth && top < window.innerHeight;
+  });
+  if (!hasVisibleNode) centerOn(nodes.value[0], Math.max(cam.scale, 0.75));
 }
 
 function restoreMessage(message) {

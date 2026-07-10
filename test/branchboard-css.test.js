@@ -226,6 +226,15 @@ describe("Branchboard multiple board persistence", () => {
     assert.match(appVue, /await createNewBoard\(\)/);
     assert.match(appVue, /createRootNode\(\)/);
     assert.match(appVue, /onMounted\([\s\S]*initializeBoards\(\)[\s\S]*\)/);
+    assert.match(appVue, /nextTick\(ensureRestoredBoardVisible\)/);
+  });
+
+  it("recovers saved camera states that reopen as an empty black canvas", () => {
+    assert.match(appVue, /function ensureRestoredBoardVisible\(\)/);
+    assert.match(appVue, /if \(cam\.scale <= 0\.35\)/);
+    assert.match(appVue, /centerOn\(nodes\.value\[0\], 0\.75\)/);
+    assert.match(appVue, /const hasVisibleNode = nodes\.value\.some/);
+    assert.match(appVue, /if \(!hasVisibleNode\) centerOn\(nodes\.value\[0\], Math\.max\(cam\.scale, 0\.75\)\)/);
   });
 
   it("serializes board state without parent cycles and debounces active board saves", () => {
