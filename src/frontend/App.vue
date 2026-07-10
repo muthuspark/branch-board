@@ -1,0 +1,1172 @@
+<template>
+  <p class="sr-only" id="keyboard-help">
+    Use arrow keys to move around. Hold Alt and use arrow keys to move the selected note. Select part of an answer, then choose Explore this.
+  </p>
+
+  <div id="workspace-controls" aria-label="Board controls">
+    <details id="board-controls">
+      <summary aria-label="Open board history">
+        <span id="board-title">{{ activeBoardTitle }}</span>
+      </summary>
+      <div id="board-menu">
+        <label class="board-menu__label" for="board-switcher">Board</label>
+        <select id="board-switcher" v-model="activeBoardId" @change="openSelectedBoard">
+          <option v-for="board in boards" :key="board.id" :value="board.id">{{ board.title }}</option>
+        </select>
+        <div class="board-menu__actions" aria-label="Board actions">
+          <button type="button" class="board-menu__button" aria-label="New board" title="New board" @click="createNewBoard">
+            <FilePlus2 aria-hidden="true" :size="16" :stroke-width="1.8" />
+            <span>New board</span>
+          </button>
+          <button type="button" class="board-menu__button" aria-label="Rename board" title="Rename board" @click="startBoardRename">
+            <Pencil aria-hidden="true" :size="16" :stroke-width="1.8" />
+            <span>Rename</span>
+          </button>
+          <button type="button" class="board-menu__button danger" aria-label="Delete board" title="Delete board" @click="deleteActiveBoard">
+            <Trash2 aria-hidden="true" :size="16" :stroke-width="1.8" />
+            <span>Delete</span>
+          </button>
+        </div>
+        <div v-if="isRenamingBoard" class="board-menu__rename">
+          <label class="sr-only" for="board-title-input">Board title</label>
+          <input
+            id="board-title-input"
+            v-model="activeBoardTitle"
+            @blur="finishBoardRename"
+            @change="finishBoardRename"
+            @keydown.enter.prevent="finishBoardRename"
+            @keydown.escape.prevent="cancelBoardRename"
+          />
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <div id="mode" :class="mode">
+    <span class="beacon"></span>
+    <span id="mode-label">{{ mode === "live" ? "Ready" : "Answers paused" }}</span>
+    <span id="save-status" aria-live="polite">{{ saveStatus }}</span>
+  </div>
+
+  <div
+    id="viewport"
+    ref="viewportEl"
+    :class="{ panning: isPanning }"
+    :style="viewportStyle"
+    @pointerdown="startPan"
+    @pointermove="panCanvas"
+    @pointerup="endPan"
+    @pointercancel="endPan"
+    @wheel="handleViewportWheel"
+    @dblclick="createNodeFromDoubleClick"
+  >
+    <div id="world" ref="worldEl" :style="worldStyle">
+      <svg id="edges">
+        <path
+          v-for="edge in edgePaths"
+          :key="`${edge.from}-${edge.to}`"
+          :d="edge.d"
+          fill="none"
+          stroke="var(--edge)"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          opacity="0.54"
+        />
+      </svg>
+
+      <article
+        v-for="node in nodes"
+        :key="node.id"
+        :ref="setNodeRef(node.id)"
+        class="node"
+        :class="{ focused: focusedId === node.id }"
+        :data-node-id="node.id"
+        :style="{ left: `${node.x}px`, top: `${node.y}px` }"
+        tabindex="0"
+        role="group"
+        aria-describedby="keyboard-help"
+        :aria-label="node.parent ? `${displayNodeLabel(node.id)} about ${trim(node.fromText, 50)}` : `${displayNodeLabel(node.id)}, start here`"
+        @pointerdown.capture="focusNode(node.id)"
+        @focusin="focusNode(node.id)"
+      >
+        <div class="node__bar" @pointerdown="startNodeDrag($event, node)">
+          <span class="dot"></span>
+          <span class="node__from">
+            <template v-if="node.parent">About <b>&ldquo;{{ trim(node.fromText, 34) }}&rdquo;</b></template>
+            <template v-else>Start here</template>
+          </span>
+          <span class="node__id">{{ displayNodeLabel(node.id) }}</span>
+        </div>
+
+        <div class="node__body" :ref="setBodyRef(node.id)">
+          <div
+            v-for="message in node.messages"
+            :key="message.id"
+            class="msg"
+            :class="[message.role, { thinking: message.thinking, error: message.error }]"
+            v-html="message.html"
+          ></div>
+        </div>
+
+        <div class="node__foot">
+          <textarea
+            v-model="node.draft"
+            rows="1"
+            :aria-label="node.parent ? 'Ask about this note' : 'Ask your first question'"
+            :placeholder="node.parent ? 'Ask about this...' : 'Ask your first question...'"
+            @input="handleDraftInput(node, $event)"
+            @keydown.enter.exact.prevent="sendQuestion(node)"
+          ></textarea>
+          <button class="ask" @click="sendQuestion(node)">Ask</button>
+        </div>
+      </article>
+    </div>
+  </div>
+
+  <button
+    id="pill"
+    ref="pillEl"
+    type="button"
+    aria-label="Explore selected answer text"
+    :style="pillStyle"
+    @pointerdown.stop.prevent
+    @click="branchFromSelection"
+  >
+    <span class="k">↳</span> Explore this
+  </button>
+
+  <div id="bottom-controls">
+    <div id="hud" aria-label="Canvas controls">
+      <button id="btn-fit" type="button" aria-label="Show all" title="Show all" @click="fitAll">
+        <Maximize aria-hidden="true" :size="18" :stroke-width="1.8" />
+      </button>
+      <button id="btn-zoomout" type="button" aria-label="Smaller" title="Smaller" @click="zoomBy(1 / 1.15)">
+        <ZoomOut aria-hidden="true" :size="18" :stroke-width="1.8" />
+      </button>
+      <button id="btn-zoomin" type="button" aria-label="Bigger" title="Bigger" @click="zoomBy(1.15)">
+        <ZoomIn aria-hidden="true" :size="18" :stroke-width="1.8" />
+      </button>
+      <button id="btn-reset" type="button" aria-label="Center" title="Center" @click="resetView">
+        <LocateFixed aria-hidden="true" :size="18" :stroke-width="1.8" />
+      </button>
+    </div>
+  </div>
+
+  <div id="hint"><b>Drag</b> empty space to move around · <b>Scroll</b> empty space to zoom · scroll notes to read</div>
+</template>
+
+<script setup>
+import DOMPurify from "dompurify";
+import { FilePlus2, LocateFixed, Maximize, Pencil, Trash2, ZoomIn, ZoomOut } from "@lucide/vue";
+import { marked } from "marked";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+
+import { renderAssistantMarkdown } from "../../public/markdown-renderer.js";
+
+const DEFAULT_NODE_W = 440;
+const HUES = [258, 172, 38, 340, 200, 286, 120, 16];
+
+const viewportEl = ref(null);
+const worldEl = ref(null);
+const pillEl = ref(null);
+const mode = ref("demo");
+const boards = ref([]);
+const activeBoardId = ref("");
+const committedBoardId = ref("");
+const activeBoardTitle = ref("Untitled board");
+const isRenamingBoard = ref(false);
+const saveStatus = ref("");
+const cam = reactive({ x: 0, y: 0, scale: 1 });
+const nodes = ref([]);
+const edges = ref([]);
+const nodeRefs = new Map();
+const bodyRefs = new Map();
+const manuallyRenamedBoards = new Set();
+const inFlightBoardSaves = new Map();
+const queuedBoardSaves = new Map();
+let uid = 0;
+let messageUid = 0;
+let focusedId = ref(null);
+let pendingSel = ref(null);
+let isPanning = ref(false);
+let panState = null;
+let dragState = null;
+let saveTimer = null;
+let pendingSaveSnapshot = null;
+let isRestoringBoard = false;
+let boardTitleBeforeRename = "Untitled board";
+
+const worldStyle = computed(() => ({
+  transform: `translate(${cam.x}px,${cam.y}px) scale(${cam.scale})`
+}));
+
+const viewportStyle = computed(() => ({
+  backgroundPosition: `${cam.x}px ${cam.y}px`,
+  backgroundSize: `${26 * cam.scale}px ${26 * cam.scale}px`
+}));
+
+const pillStyle = computed(() => {
+  if (!pendingSel.value) return { display: "none" };
+  return {
+    display: "flex",
+    left: `${pendingSel.value.left}px`,
+    top: `${pendingSel.value.top}px`
+  };
+});
+
+const edgePaths = computed(() =>
+  edges.value.map(edge => {
+    const from = nodes.value.find(node => node.id === edge.from);
+    const to = nodes.value.find(node => node.id === edge.to);
+    if (!from || !to) return { ...edge, d: "" };
+    const fromEl = nodeRefs.get(from.id);
+    const toEl = nodeRefs.get(to.id);
+    const ah = fromEl?.offsetHeight || 200;
+    const bh = toEl?.offsetHeight || 200;
+    const x1 = from.x + nodeWidth(from);
+    const y1 = from.y + Math.min(ah / 2, 60);
+    const x2 = to.x;
+    const y2 = to.y + Math.min(bh / 2, 60);
+    const dx = Math.max(50, (x2 - x1) * 0.5);
+    return { ...edge, d: `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}` };
+  })
+);
+
+function setNodeRef(id) {
+  return element => {
+    if (element) nodeRefs.set(id, element);
+    else nodeRefs.delete(id);
+  };
+}
+
+function setBodyRef(id) {
+  return element => {
+    if (element) bodyRefs.set(id, element);
+    else bodyRefs.delete(id);
+  };
+}
+
+async function fetchJson(url, options = {}) {
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(options.headers || {})
+    }
+  });
+  if (response.status === 204) return null;
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || "Request failed.");
+  return payload;
+}
+
+async function initializeBoards() {
+  try {
+    const data = await fetchJson("/api/boards");
+    boards.value = Array.isArray(data.boards) ? data.boards : [];
+    if (!boards.value.length) {
+      if (!await createNewBoard()) {
+        restoreStartupRoot("Local save failed");
+      }
+      return;
+    }
+    if (!await loadBoard(boards.value[0].id)) {
+      restoreStartupRoot("Could not load boards");
+    }
+  } catch (_) {
+    boards.value = [];
+    restoreStartupRoot("Could not load boards");
+  }
+}
+
+async function refreshBoardList() {
+  const data = await fetchJson("/api/boards");
+  boards.value = Array.isArray(data.boards) ? data.boards : [];
+}
+
+async function createNewBoard() {
+  if (!await flushActiveBoardSave()) return false;
+  try {
+    const board = await fetchJson("/api/boards", {
+      method: "POST",
+      body: JSON.stringify({
+        title: "Untitled board",
+        state: createInitialBoardState()
+      })
+    });
+    await refreshBoardList();
+    loadBoardSnapshot(board);
+    saveStatus.value = "Saved";
+    return true;
+  } catch (_) {
+    saveStatus.value = "Local save failed";
+    return false;
+  }
+}
+
+async function openSelectedBoard() {
+  const requestedBoardId = activeBoardId.value;
+  if (!requestedBoardId || requestedBoardId === committedBoardId.value) return;
+  if (!await flushActiveBoardSave()) {
+    activeBoardId.value = committedBoardId.value;
+    return;
+  }
+  if (!await loadBoard(requestedBoardId) && activeBoardId.value === requestedBoardId) {
+    activeBoardId.value = committedBoardId.value;
+  }
+}
+
+async function loadBoard(id) {
+  const requestedBoardId = id;
+  try {
+    const board = await fetchJson(`/api/boards/${requestedBoardId}`);
+    if (activeBoardId.value && activeBoardId.value !== requestedBoardId) return false;
+    loadBoardSnapshot(board);
+    saveStatus.value = "Saved";
+    return true;
+  } catch (_) {
+    if (activeBoardId.value === requestedBoardId) activeBoardId.value = committedBoardId.value;
+    saveStatus.value = "Could not load boards";
+    return false;
+  }
+}
+
+function restoreStartupRoot(status) {
+  clearPendingSave();
+  saveStatus.value = status;
+  activeBoardId.value = "";
+  committedBoardId.value = "";
+  activeBoardTitle.value = "Untitled board";
+  isRenamingBoard.value = false;
+  isRestoringBoard = true;
+  nodes.value = [];
+  edges.value = [];
+  nodeRefs.clear();
+  bodyRefs.clear();
+  createRootNode();
+  isRestoringBoard = false;
+}
+
+function loadBoardSnapshot(board) {
+  clearPendingSave();
+  isRenamingBoard.value = false;
+  isRestoringBoard = true;
+  activeBoardId.value = board.id;
+  committedBoardId.value = board.id;
+  activeBoardTitle.value = board.title || "Untitled board";
+  restoreBoardState(board.state || createInitialBoardState());
+  isRestoringBoard = false;
+}
+
+function renameActiveBoard() {
+  activeBoardTitle.value = activeBoardTitle.value.trim() || "Untitled board";
+  if (committedBoardId.value) manuallyRenamedBoards.add(committedBoardId.value);
+  scheduleBoardSave();
+}
+
+function startBoardRename() {
+  boardTitleBeforeRename = activeBoardTitle.value;
+  isRenamingBoard.value = true;
+  nextTick(() => document.getElementById("board-title-input")?.focus());
+}
+
+function finishBoardRename() {
+  if (!isRenamingBoard.value) return;
+  isRenamingBoard.value = false;
+  renameActiveBoard();
+}
+
+function cancelBoardRename() {
+  activeBoardTitle.value = boardTitleBeforeRename || "Untitled board";
+  isRenamingBoard.value = false;
+}
+
+async function deleteActiveBoard() {
+  if (!committedBoardId.value) return;
+  if (!window.confirm("Delete this board?")) return;
+  isRenamingBoard.value = false;
+  if (!await flushActiveBoardSave()) return;
+  const deletedId = committedBoardId.value;
+  const currentIndex = boards.value.findIndex(board => board.id === deletedId);
+  const remaining = boards.value.filter(board => board.id !== deletedId);
+  const nextBoard = remaining[Math.min(Math.max(currentIndex, 0), remaining.length - 1)];
+  clearPendingSave();
+  try {
+    await fetchJson(`/api/boards/${deletedId}`, { method: "DELETE" });
+    committedBoardId.value = "";
+    activeBoardId.value = "";
+    await refreshBoardList();
+    if (nextBoard) {
+      activeBoardId.value = nextBoard.id;
+      if (!await loadBoard(nextBoard.id)) restoreStartupRoot("Could not load boards");
+    } else if (!await createNewBoard()) {
+      restoreStartupRoot("Local save failed");
+    }
+  } catch (_) {
+    saveStatus.value = "Local save failed";
+  }
+}
+
+function createInitialBoardState() {
+  return {
+    cam: { x: 0, y: 0, scale: 1 },
+    nodes: [],
+    edges: [],
+    uid: 0,
+    messageUid: 0
+  };
+}
+
+function serializeBoardState() {
+  return {
+    cam: { x: cam.x, y: cam.y, scale: cam.scale },
+    nodes: nodes.value.map(node => ({
+      id: node.id,
+      x: node.x,
+      y: node.y,
+      parentId: node.parent?.id || null,
+      fromText: node.fromText,
+      draft: node.draft,
+      messages: node.messages.map(serializeMessage).filter(Boolean)
+    })),
+    edges: edges.value.map(edge => ({ from: edge.from, to: edge.to })),
+    uid,
+    messageUid
+  };
+}
+
+function restoreBoardState(state) {
+  const snapshot = isPlainObject(state) ? state : createInitialBoardState();
+  nodes.value = [];
+  edges.value = [];
+  nodeRefs.clear();
+  bodyRefs.clear();
+  hidePill();
+
+  const stateCam = isPlainObject(snapshot.cam) ? snapshot.cam : createInitialBoardState().cam;
+  cam.x = finiteNumber(stateCam.x, 0);
+  cam.y = finiteNumber(stateCam.y, 0);
+  cam.scale = finiteNumber(stateCam.scale, 1);
+  uid = Number.isInteger(snapshot.uid) ? snapshot.uid : 0;
+  messageUid = Number.isInteger(snapshot.messageUid) ? snapshot.messageUid : 0;
+
+  const parentIds = new Map();
+  const byId = new Map();
+  for (const savedNode of Array.isArray(snapshot.nodes) ? snapshot.nodes : []) {
+    if (!isPlainObject(savedNode)) continue;
+    const node = {
+      id: String(savedNode.id || `n${++uid}`),
+      x: finiteNumber(savedNode.x, 0),
+      y: finiteNumber(savedNode.y, 0),
+      parent: null,
+      fromText: savedNode.fromText || null,
+      draft: savedNode.draft || "",
+      messages: Array.isArray(savedNode.messages)
+        ? savedNode.messages.map(restoreMessage)
+        : [],
+      children: []
+    };
+    nodes.value.push(node);
+    byId.set(node.id, node);
+    parentIds.set(node.id, savedNode.parentId || null);
+  }
+
+  for (const node of nodes.value) {
+    const parent = byId.get(parentIds.get(node.id));
+    if (parent && parent.id !== node.id) {
+      node.parent = parent;
+      parent.children.push(node.id);
+    }
+  }
+
+  edges.value = (Array.isArray(snapshot.edges) ? snapshot.edges : [])
+    .filter(edge => isPlainObject(edge))
+    .filter(edge => byId.has(edge.from) && byId.has(edge.to))
+    .map(edge => ({ from: edge.from, to: edge.to }));
+
+  if (!nodes.value.length) {
+    createRootNode();
+    return;
+  }
+  focusNode(nodes.value[0].id);
+}
+
+function restoreMessage(message) {
+  const text = message?.thinking ? userFacingError() : (message?.text || "");
+  const role = message?.role === "assistant" ? "assistant" : "user";
+  return {
+    id: message?.id || `m${++messageUid}`,
+    role,
+    text,
+    html: renderMessageHtml(role, text),
+    ...((message?.error || message?.thinking) && role === "assistant" ? { error: true } : {})
+  };
+}
+
+function serializeMessage(message) {
+  if (!isPlainObject(message)) return null;
+  const role = message.role === "assistant" ? "assistant" : "user";
+  const text = message.thinking && role === "assistant" ? userFacingError() : String(message.text || "");
+  const serialized = {
+    id: message.id || `m${++messageUid}`,
+    role,
+    text
+  };
+  if ((message.error || message.thinking) && role === "assistant") {
+    serialized.error = true;
+  }
+  return serialized;
+}
+
+function maybeDeriveBoardTitle(question) {
+  if (!committedBoardId.value) return;
+  if (manuallyRenamedBoards.has(committedBoardId.value)) return;
+  if (activeBoardTitle.value.trim() !== "Untitled board") return;
+  activeBoardTitle.value = trim(question, 48);
+}
+
+function clearPendingSave() {
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = null;
+  pendingSaveSnapshot = null;
+}
+
+function clearSaveTimer() {
+  if (!saveTimer) return;
+  clearTimeout(saveTimer);
+  saveTimer = null;
+}
+
+function scheduleBoardSave() {
+  if (isRestoringBoard || !committedBoardId.value) return;
+  pendingSaveSnapshot = captureActiveBoardSnapshot();
+  clearSaveTimer();
+  saveTimer = setTimeout(saveActiveBoard, 350);
+}
+
+function captureActiveBoardSnapshot() {
+  if (!committedBoardId.value) return null;
+  return {
+    boardId: committedBoardId.value,
+    title: activeBoardTitle.value,
+    state: serializeBoardState()
+  };
+}
+
+async function flushActiveBoardSave() {
+  const boardId = committedBoardId.value;
+  const snapshot = pendingSaveSnapshot;
+  clearSaveTimer();
+  pendingSaveSnapshot = null;
+  if (snapshot && !await saveBoardSnapshot(snapshot, { updateUi: false })) return false;
+  if (!boardId) return true;
+  return waitForBoardSaveIdle(committedBoardId.value);
+}
+
+async function saveActiveBoard() {
+  if (isRestoringBoard) return;
+  const snapshot = pendingSaveSnapshot || captureActiveBoardSnapshot();
+  clearSaveTimer();
+  pendingSaveSnapshot = null;
+  if (!snapshot) return;
+  await saveBoardSnapshot(snapshot);
+}
+
+async function saveBoardSnapshot(snapshot, { updateUi = true } = {}) {
+  if (inFlightBoardSaves.has(snapshot.boardId)) {
+    queuedBoardSaves.set(snapshot.boardId, { snapshot, updateUi });
+    return waitForBoardSaveIdle(snapshot.boardId);
+  }
+
+  const savePromise = processBoardSaveQueue(snapshot.boardId, { snapshot, updateUi });
+  inFlightBoardSaves.set(snapshot.boardId, savePromise);
+  try {
+    return await savePromise;
+  } finally {
+    if (inFlightBoardSaves.get(snapshot.boardId) === savePromise) {
+      inFlightBoardSaves.delete(snapshot.boardId);
+    }
+  }
+}
+
+async function waitForBoardSaveIdle(boardId) {
+  return inFlightBoardSaves.get(boardId) || true;
+}
+
+async function processBoardSaveQueue(boardId, initialRequest) {
+  let request = initialRequest;
+  let ok = true;
+  while (request) {
+    ok = await persistBoardSnapshot(request.snapshot, { updateUi: request.updateUi });
+    request = queuedBoardSaves.get(boardId);
+    queuedBoardSaves.delete(boardId);
+  }
+  return ok;
+}
+
+async function persistBoardSnapshot(snapshot, { updateUi = true } = {}) {
+  saveStatus.value = "Saving...";
+  try {
+    const board = await fetchJson(`/api/boards/${snapshot.boardId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        title: snapshot.title,
+        state: snapshot.state
+      })
+    });
+    if (updateUi && snapshot.boardId !== committedBoardId.value) return true;
+    if (updateUi) {
+      activeBoardTitle.value = board.title || activeBoardTitle.value;
+      await refreshBoardList();
+    }
+    if (!updateUi || snapshot.boardId === committedBoardId.value) saveStatus.value = "Saved";
+    return true;
+  } catch (_) {
+    if (!updateUi || snapshot.boardId === committedBoardId.value) saveStatus.value = "Local save failed";
+    return false;
+  }
+}
+
+function plainMessage(role, text, extra = {}) {
+  return {
+    id: `m${++messageUid}`,
+    role,
+    text,
+    html: renderMessageHtml(role, text),
+    ...extra
+  };
+}
+
+function assistantMessage(answer) {
+  return {
+    id: `m${++messageUid}`,
+    role: "assistant",
+    text: answer,
+    html: renderAssistantMarkdown(answer, marked, DOMPurify)
+  };
+}
+
+function renderMessageHtml(role, text) {
+  return role === "assistant" ? renderAssistantMarkdown(text, marked, DOMPurify) : escapeHtml(text);
+}
+
+function createNode({ x, y, parent = null, fromText = null }) {
+  const id = `n${++uid}`;
+  const node = {
+    id,
+    x,
+    y,
+    parent,
+    fromText,
+    draft: "",
+    messages: [],
+    children: []
+  };
+  nodes.value.push(node);
+  if (parent) {
+    parent.children.push(id);
+    edges.value.push({ from: parent.id, to: id });
+  }
+  focusNode(id);
+  if (!isRestoringBoard) {
+    scheduleBoardSave();
+    nextTick(() => {
+      nodeRefs.get(id)?.querySelector("textarea")?.focus();
+      scrollNodeBody(node);
+    });
+  }
+  return node;
+}
+
+function createRootNode() {
+  const node = createNode({ x: 0, y: 0 });
+  const shouldSave = !isRestoringBoard;
+  nextTick(() => centerOn(node, 1, shouldSave));
+  return node;
+}
+
+function createCenteredRoot() {
+  const center = screenToWorld(window.innerWidth / 2, window.innerHeight / 2);
+  createNode({ x: center.x - DEFAULT_NODE_W / 2, y: center.y - 120 });
+}
+
+function sendQuestion(node) {
+  const question = node.draft.trim();
+  if (!question) return;
+  const requestBoardId = committedBoardId.value;
+  const requestNodeId = node.id;
+  maybeDeriveBoardTitle(question);
+  node.draft = "";
+  node.messages.push(plainMessage("user", question));
+  const thinking = plainMessage("assistant", "Thinking...", { thinking: true });
+  node.messages.push(thinking);
+  let receivedAnswer = false;
+  scheduleBoardSave();
+  nextTick(() => scrollNodeBody(node));
+  streamLLM(question, lineageFor(node), {
+    onDelta(delta) {
+      appendMessageTextForBoard(requestBoardId, requestNodeId, thinking.id, delta, {
+        replace: !receivedAnswer
+      });
+      receivedAnswer = true;
+      if (requestBoardId === committedBoardId.value) {
+        const activeNode = nodes.value.find(item => item.id === requestNodeId);
+        if (activeNode) nextTick(() => scrollNodeBody(activeNode));
+      }
+    }
+  })
+    .then(() => {
+      mode.value = "live";
+    })
+    .catch(error => {
+      replaceMessageForBoard(requestBoardId, requestNodeId, thinking.id, {
+        ...plainMessage("assistant", userFacingError(error)),
+        error: true
+      });
+    })
+    .finally(() => {
+      if (requestBoardId === committedBoardId.value) {
+        const activeNode = nodes.value.find(item => item.id === requestNodeId);
+        if (activeNode) nextTick(() => scrollNodeBody(activeNode));
+      }
+    });
+}
+
+async function streamLLM(question, lineage, { onDelta }) {
+  try {
+    const response = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, lineage })
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.error || "Answer request failed.");
+    }
+    if (!response.body) throw new Error("Answer stream failed.");
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let receivedText = false;
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+      let eventEnd;
+      while ((eventEnd = buffer.indexOf("\n\n")) !== -1) {
+        const event = parseStreamEvent(buffer.slice(0, eventEnd));
+        buffer = buffer.slice(eventEnd + 2);
+        if (!event) continue;
+        if (event.type === "done") {
+          if (!receivedText) throw new Error("Empty answer.");
+          return;
+        }
+        if (event.type === "error") {
+          const payload = parseStreamPayload(event.data);
+          throw new Error(payload.error || "Answer request failed.");
+        }
+        const payload = parseStreamPayload(event.data);
+        const delta = payload.delta || "";
+        if (delta) {
+          receivedText = true;
+          onDelta(delta);
+        }
+      }
+    }
+
+    buffer += decoder.decode();
+    if (buffer.trim()) {
+      const event = parseStreamEvent(buffer);
+      if (event?.type === "message") {
+        const payload = parseStreamPayload(event.data);
+        const delta = payload.delta || "";
+        if (delta) {
+          receivedText = true;
+          onDelta(delta);
+        }
+      }
+    }
+
+    if (!receivedText) throw new Error("Empty answer.");
+  } catch (error) {
+    mode.value = "demo";
+    throw error;
+  }
+}
+
+function parseStreamEvent(block) {
+  const lines = block.split("\n");
+  const data = [];
+  let type = "message";
+  for (const line of lines) {
+    if (line.startsWith("event:")) type = line.slice(6).trim();
+    else if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
+  }
+  if (!data.length && type === "message") return null;
+  return { type, data: data.join("\n") };
+}
+
+function parseStreamPayload(data) {
+  try {
+    return JSON.parse(data || "{}");
+  } catch (_) {
+    return {};
+  }
+}
+
+async function callLLM(question, lineage) {
+  try {
+    let answer = "";
+    await streamLLM(question, lineage, {
+      onDelta(delta) {
+        answer += delta;
+      }
+    });
+    const text = answer.trim();
+    if (!text) throw new Error("Empty answer.");
+    mode.value = "live";
+    return text;
+  } catch (error) {
+    mode.value = "demo";
+    throw error;
+  }
+}
+
+function replaceMessage(node, id, message) {
+  const index = node.messages.findIndex(item => item.id === id);
+  if (index !== -1) {
+    node.messages.splice(index, 1, message);
+    scheduleBoardSave();
+  }
+}
+
+function replaceMessageForBoard(boardId, nodeId, id, message) {
+  if (boardId !== committedBoardId.value) return;
+  const node = nodes.value.find(item => item.id === nodeId);
+  if (!node) return;
+  replaceMessage(node, id, message);
+}
+
+function appendMessageText(node, id, delta, { replace = false } = {}) {
+  const message = node.messages.find(item => item.id === id);
+  if (!message) return;
+  const text = replace ? delta : `${message.text || ""}${delta}`;
+  Object.assign(message, {
+    role: "assistant",
+    text,
+    html: renderMessageHtml("assistant", text)
+  });
+  delete message.thinking;
+  delete message.error;
+  scheduleBoardSave();
+}
+
+function appendMessageTextForBoard(boardId, nodeId, id, delta, options) {
+  if (boardId !== committedBoardId.value) return;
+  const node = nodes.value.find(item => item.id === nodeId);
+  if (!node) return;
+  appendMessageText(node, id, delta, options);
+}
+
+function branchFromSelection() {
+  if (!pendingSel.value) return;
+  const parent = nodes.value.find(node => node.id === pendingSel.value.nodeId);
+  if (!parent) return;
+  try {
+    const mark = document.createElement("span");
+    mark.className = "branch-mark";
+    mark.appendChild(pendingSel.value.range.extractContents());
+    pendingSel.value.range.insertNode(mark);
+  } catch (_) {}
+
+  const child = createNode({
+    x: parent.x + nodeWidth(parent) + 90,
+    y: parent.y + parent.children.length * 150,
+    parent,
+    fromText: pendingSel.value.text
+  });
+  hidePill();
+  window.getSelection()?.removeAllRanges();
+  centerOn(child, 1);
+}
+
+function handleSelectionChange() {
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || !selection.toString().trim()) {
+    hidePill();
+    return;
+  }
+  const anchorEl = selection.anchorNode?.parentElement?.closest?.(".msg.assistant");
+  const focusEl = selection.focusNode?.parentElement?.closest?.(".msg.assistant");
+  if (!anchorEl || anchorEl !== focusEl) {
+    hidePill();
+    return;
+  }
+  const nodeEl = anchorEl.closest(".node");
+  const rect = selection.getRangeAt(0).getBoundingClientRect();
+  pendingSel.value = {
+    nodeId: nodeEl.dataset.nodeId,
+    text: selection.toString().trim(),
+    range: selection.getRangeAt(0).cloneRange(),
+    left: rect.left + rect.width / 2,
+    top: rect.top
+  };
+}
+
+function hidePill() {
+  pendingSel.value = null;
+}
+
+function lineageFor(node) {
+  const parts = [];
+  if (node.fromText) parts.push(`Selected text: ${trim(node.fromText, 160)}`);
+  let cur = nodes.value.find(item => item.id === node.parent?.id);
+  let guard = 0;
+  while (cur && guard++ < 4) {
+    const firstUser = cur.messages.find(message => message.role === "user");
+    if (firstUser) parts.unshift(trim(firstUser.text, 90));
+    cur = nodes.value.find(item => item.id === cur.parent?.id);
+  }
+  return parts.length ? parts.join("  ->  ") : "";
+}
+
+function focusNode(id) {
+  focusedId.value = id;
+}
+
+function displayNodeLabel(id) {
+  return `Note ${String(id || "").replace(/^n/, "")}`;
+}
+
+function userFacingError(error) {
+  return error?.message === "Empty answer."
+    ? "I got an empty answer. Please try again."
+    : "I couldn't get an answer. Please try again.";
+}
+
+function nodeWidth(node) {
+  return nodeRefs.get(node.id)?.offsetWidth || DEFAULT_NODE_W;
+}
+
+function nodeHeight(node) {
+  return nodeRefs.get(node.id)?.offsetHeight || 200;
+}
+
+function screenToWorld(sx, sy) {
+  return { x: (sx - cam.x) / cam.scale, y: (sy - cam.y) / cam.scale };
+}
+
+function centerOn(node, scale = cam.scale, persist = true) {
+  cam.scale = scale;
+  cam.x = window.innerWidth / 2 - (node.x + nodeWidth(node) / 2) * scale;
+  cam.y = window.innerHeight / 2 - (node.y + nodeHeight(node) / 2) * scale;
+  if (persist) scheduleBoardSave();
+}
+
+function fitAll() {
+  if (!nodes.value.length) return;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const node of nodes.value) {
+    minX = Math.min(minX, node.x);
+    minY = Math.min(minY, node.y);
+    maxX = Math.max(maxX, node.x + nodeWidth(node));
+    maxY = Math.max(maxY, node.y + nodeHeight(node));
+  }
+  const pad = 80;
+  const width = maxX - minX + pad * 2;
+  const height = maxY - minY + pad * 2;
+  const scale = clamp(Math.min(window.innerWidth / width, window.innerHeight / height), 0.25, 1.2);
+  cam.scale = scale;
+  cam.x = (window.innerWidth - width * scale) / 2 - (minX - pad) * scale;
+  cam.y = (window.innerHeight - height * scale) / 2 - (minY - pad) * scale;
+  scheduleBoardSave();
+}
+
+function resetView() {
+  const root = nodes.value[0];
+  if (root) centerOn(root, 1);
+}
+
+function zoomBy(factor) {
+  cam.scale = clamp(cam.scale * factor, 0.25, 2.2);
+  scheduleBoardSave();
+}
+
+function handleViewportWheel(event) {
+  if (event.target.closest(".node")) return;
+  event.preventDefault();
+  zoomCanvas(event);
+}
+
+function zoomCanvas(event) {
+  const factor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
+  const nextScale = clamp(cam.scale * factor, 0.25, 2.2);
+  const wx = (event.clientX - cam.x) / cam.scale;
+  const wy = (event.clientY - cam.y) / cam.scale;
+  cam.scale = nextScale;
+  cam.x = event.clientX - wx * nextScale;
+  cam.y = event.clientY - wy * nextScale;
+  hidePill();
+  scheduleBoardSave();
+}
+
+function startPan(event) {
+  if (
+    event.target.closest(".node") ||
+    event.target.closest("#hud") ||
+    event.target.closest("#board-controls") ||
+    event.target.closest("#workspace-controls") ||
+    event.target === pillEl.value
+  ) return;
+  isPanning.value = true;
+  panState = { sx: event.clientX, sy: event.clientY, cx: cam.x, cy: cam.y };
+  viewportEl.value?.setPointerCapture(event.pointerId);
+  hidePill();
+}
+
+function panCanvas(event) {
+  if (!isPanning.value || !panState) return;
+  cam.x = panState.cx + event.clientX - panState.sx;
+  cam.y = panState.cy + event.clientY - panState.sy;
+  scheduleBoardSave();
+}
+
+function endPan(event) {
+  isPanning.value = false;
+  panState = null;
+  try {
+    viewportEl.value?.releasePointerCapture(event.pointerId);
+  } catch (_) {}
+}
+
+function startNodeDrag(event, node) {
+  if (event.target.closest("textarea,button")) return;
+  dragState = { node, sx: event.clientX, sy: event.clientY, ox: node.x, oy: node.y };
+  event.currentTarget.setPointerCapture(event.pointerId);
+  event.currentTarget.addEventListener("pointermove", dragNode);
+  event.currentTarget.addEventListener("pointerup", endNodeDrag, { once: true });
+  event.currentTarget.addEventListener("pointercancel", endNodeDrag, { once: true });
+  event.stopPropagation();
+}
+
+function dragNode(event) {
+  if (!dragState) return;
+  dragState.node.x = dragState.ox + (event.clientX - dragState.sx) / cam.scale;
+  dragState.node.y = dragState.oy + (event.clientY - dragState.sy) / cam.scale;
+  scheduleBoardSave();
+}
+
+function endNodeDrag(event) {
+  event.currentTarget.removeEventListener("pointermove", dragNode);
+  try {
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  } catch (_) {}
+  dragState = null;
+  scheduleBoardSave();
+}
+
+function createNodeFromDoubleClick(event) {
+  if (
+    event.target.closest(".node") ||
+    event.target.closest("#hud") ||
+    event.target.closest("#board-controls") ||
+    event.target.closest("#workspace-controls")
+  ) return;
+  const world = screenToWorld(event.clientX, event.clientY);
+  createNode({ x: world.x - DEFAULT_NODE_W / 2, y: world.y - 40 });
+}
+
+function isTypingTarget(target) {
+  return target?.closest?.("textarea,input,button,[contenteditable='true']");
+}
+
+function moveFocusedNode(dx, dy) {
+  const node = nodes.value.find(item => item.id === focusedId.value);
+  if (!node) return;
+  node.x += dx / cam.scale;
+  node.y += dy / cam.scale;
+}
+
+function handleCanvasKeyboard(event) {
+  if (isTypingTarget(event.target)) return;
+  const panStep = event.shiftKey ? 96 : 48;
+  const moveStep = event.shiftKey ? 48 : 24;
+  let dx = 0;
+  let dy = 0;
+  if (event.key === "ArrowLeft") dx = -1;
+  else if (event.key === "ArrowRight") dx = 1;
+  else if (event.key === "ArrowUp") dy = -1;
+  else if (event.key === "ArrowDown") dy = 1;
+  else return;
+  event.preventDefault();
+  if (event.altKey) {
+    moveFocusedNode(dx * moveStep, dy * moveStep);
+    scheduleBoardSave();
+    return;
+  }
+  cam.x -= dx * panStep;
+  cam.y -= dy * panStep;
+  hidePill();
+  scheduleBoardSave();
+}
+
+function autoGrow(event) {
+  const textarea = event.target;
+  textarea.style.height = "auto";
+  textarea.style.height = `${Math.min(textarea.scrollHeight, 80)}px`;
+}
+
+function handleDraftInput(_node, event) {
+  autoGrow(event);
+  scheduleBoardSave();
+}
+
+function scrollNodeBody(node) {
+  const body = bodyRefs.get(node.id);
+  if (body) body.scrollTop = body.scrollHeight;
+}
+
+function trim(value, length) {
+  const text = value || "";
+  return text.length > length ? `${text.slice(0, length - 1)}...` : text;
+}
+
+function escapeHtml(value) {
+  return String(value || "").replace(/[&<>"']/g, char => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  })[char]);
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function finiteNumber(value, fallback) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+onMounted(() => {
+  document.addEventListener("selectionchange", handleSelectionChange);
+  window.addEventListener("keydown", handleCanvasKeyboard);
+  initializeBoards();
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener("selectionchange", handleSelectionChange);
+  window.removeEventListener("keydown", handleCanvasKeyboard);
+  clearPendingSave();
+});
+</script>
