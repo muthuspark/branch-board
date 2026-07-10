@@ -1,0 +1,8 @@
+node_modules/
+.env
+.impeccable/
+docs/superpowers/
+logs/
+data/
+dist/
+.DS_Store
