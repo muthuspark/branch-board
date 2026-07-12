@@ -72,6 +72,15 @@ describe("Branchboard cursor affordances", () => {
     assert.match(ruleFor(".node__body::-webkit-scrollbar-thumb"), /background\s*:\s*var\(--scrollbar-thumb\)/);
     assert.match(ruleFor(".node__body::-webkit-scrollbar-thumb"), /border-radius\s*:\s*var\(--radius-pill\)/);
   });
+
+  it("keeps assistant markdown tables readable inside answer bubbles", () => {
+    assert.match(ruleFor(".msg.assistant table"), /display\s*:\s*block/);
+    assert.match(ruleFor(".msg.assistant table"), /overflow-x\s*:\s*auto/);
+    assert.match(ruleFor(".msg.assistant table"), /scrollbar-color\s*:\s*var\(--scrollbar-thumb\)\s+var\(--card-2\)/);
+    assert.match(ruleFor(".msg.assistant th,\n  .msg.assistant td"), /min-width\s*:\s*8rem/);
+    assert.match(ruleFor(".msg.assistant th,\n  .msg.assistant td"), /overflow-wrap\s*:\s*break-word/);
+    assert.match(ruleFor(".msg.assistant thead"), /background\s*:\s*var\(--paper\)/);
+  });
 });
 
 describe("Branchboard wheel interactions", () => {
@@ -471,9 +480,10 @@ describe("Branchboard visual style", () => {
     assert.match(ruleFor(".node"), /border-radius\s*:\s*2px/);
     assert.match(ruleFor(".node"), /box-shadow\s*:\s*none/);
     assert.match(ruleFor(".node"), /border\s*:\s*1px\s+solid\s+var\(--line\)/);
-    assert.match(ruleFor(".node::before"), /background/);
-    assert.match(ruleFor("#viewport"), /color-mix\(in oklch, var\(--grid-major\) 26%, transparent\)/);
-    assert.match(ruleFor("#viewport::after"), /radial-gradient/);
+    assert.match(ruleFor("#viewport"), /background-color\s*:\s*var\(--ink\)/);
+    assert.doesNotMatch(ruleFor("#viewport"), /linear-gradient|radial-gradient|background-size/);
+    assert.doesNotMatch(ruleFor("#viewport::after"), /radial-gradient/);
+    assert.equal(ruleFor(".node::before"), "");
     assert.match(ruleFor(".msg.user"), /border\s*:\s*1px\s+solid\s+var\(--line-strong\)/);
   });
 });

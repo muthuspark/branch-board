@@ -22,6 +22,14 @@ describe("Branchboard markdown rendering", () => {
     assert.match(html, /<li>one<\/li>/);
   });
 
+  it("renders GitHub-flavored markdown tables", () => {
+    const html = renderAssistantMarkdown("| Camp | Core Claim |\n|---|---|\n| Functionalism | AI can be conscious |", marked, sanitizer);
+
+    assert.match(html, /<table>/);
+    assert.match(html, /<th>Camp<\/th>/);
+    assert.match(html, /<td>Functionalism<\/td>/);
+  });
+
   it("sanitizes raw HTML from assistant markdown", () => {
     const html = renderAssistantMarkdown('<img src="x" onerror="alert(1)">', marked, sanitizer);
 

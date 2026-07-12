@@ -4,8 +4,6 @@ description: A graphite engineering workstation for branching chat threads.
 colors:
   ink: "oklch(13% 0.006 245)"
   ink-raised: "oklch(17% 0.007 245)"
-  grid: "oklch(28% 0.006 245)"
-  grid-major: "oklch(36% 0.007 245)"
   card: "oklch(18.5% 0.007 245)"
   card-muted: "oklch(22% 0.008 245)"
   text: "oklch(86% 0.009 245)"
@@ -103,10 +101,10 @@ components:
 
 Branchboard is a spatial thinking tool styled like a precision workstation for building and operating AI agents. It should feel closer to CAD software, an IDE, or mission control than a conventional SaaS dashboard: dense, aligned, calm, and obviously engineered.
 
-The interface is dark graphite, flat, and structural. Depth comes from grid alignment, 1px borders, divider lines, corner markers, and surface contrast. Shadows, gradients, glass effects, rounded cards, and decorative color are out of system.
+The interface is dark graphite, flat, and structural. Depth comes from spatial alignment, 1px borders, divider lines, and surface contrast. Shadows, gradients, glass effects, rounded cards, and decorative color are out of system.
 
 **Key Characteristics:**
-- Graphite monochrome surfaces with a visible engineering grid.
+- Graphite monochrome surfaces with solid, uninterrupted backgrounds.
 - Embedded control panels, not floating cards.
 - Monospaced technical labels and metadata, sans-serif reading text.
 - Amber only for active state, focus, selection, branch provenance, and progress.
@@ -138,7 +136,7 @@ The palette is restrained graphite with a single amber accent. Inactive surfaces
 
 **The Amber Means State Rule.** Amber marks the next action, keyboard focus, live readiness, selection, or branch provenance. It is never used on inactive decoration.
 
-**The Grid Is Infrastructure Rule.** The canvas grid, dot matrix, and panel corner ticks are structural cues. They must remain faint enough to read through.
+**The Solid Canvas Rule.** Canvas and panel backgrounds stay solid. Spatial structure comes from placement, borders, and dividers rather than grid or dot textures.
 
 ## 3. Typography
 
@@ -180,8 +178,8 @@ Branchboard is flat by default. It uses no decorative shadows. Hierarchy comes f
 
 ### Panels / Nodes
 - **Corner Style:** 2px radius maximum.
-- **Background:** Dark panel surface on a graphite grid canvas.
-- **Texture:** Major panels include faint dot matrix texture and subtle corner ticks.
+- **Background:** Dark panel surface on a solid graphite canvas.
+- **Texture:** No grid, dot matrix, or patterned background texture.
 - **Shadow Strategy:** None.
 - **Border:** 1px structural border with internal header/footer dividers.
 - **Width:** Default node width is 440px, capped at 90% of the viewport.
