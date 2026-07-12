@@ -288,8 +288,12 @@ function createWikipediaImageTool(fetchImpl) {
       if (!response.ok) return "No Wikipedia image found.";
       const data = await response.json();
       const page = Object.values(data.query?.pages || {})[0];
-      const imageUrl = page?.original?.source || page?.thumbnail?.source;
+      let imageUrl = page?.original?.source || page?.thumbnail?.source;
       if (!page || !imageUrl) return "No Wikipedia image found.";
+      if (!(await isRealImage(fetchImpl, imageUrl))) {
+        imageUrl = await recoverCommonsImage(fetchImpl, imageUrl);
+      }
+      if (!imageUrl) return "No Wikipedia image found.";
       return JSON.stringify({
         title: page.title,
         imageUrl,
@@ -312,6 +316,45 @@ function createWikipediaImageTool(fetchImpl) {
       }
     }
   );
+}
+
+async function isRealImage(fetchImpl, url) {
+  try {
+    let response = await fetchImpl(url, { method: "HEAD" });
+    if (!response.ok) response = await fetchImpl(url, { headers: { Range: "bytes=0-0" } });
+    return response.ok && response.headers.get("content-type")?.startsWith("image/");
+  } catch {
+    return false;
+  }
+}
+
+async function recoverCommonsImage(fetchImpl, url) {
+  const file = commonsFileName(url);
+  if (!file) return null;
+
+  const params = new URLSearchParams({
+    action: "query",
+    titles: `File:${file}`,
+    prop: "imageinfo",
+    iiprop: "url|mime",
+    format: "json"
+  });
+  const response = await fetchImpl(`https://commons.wikimedia.org/w/api.php?${params}`);
+  const page = response.ok ? Object.values((await response.json()).query?.pages || {})[0] : null;
+  const apiUrl = page?.imageinfo?.[0]?.url;
+  if (apiUrl && await isRealImage(fetchImpl, apiUrl)) return apiUrl;
+
+  const filePathUrl = `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(file)}`;
+  return await isRealImage(fetchImpl, filePathUrl) ? filePathUrl : null;
+}
+
+function commonsFileName(url) {
+  try {
+    const parts = new URL(url).pathname.split("/").map(decodeURIComponent);
+    return parts.includes("thumb") ? parts.at(-2) : parts.at(-1);
+  } catch {
+    return null;
+  }
 }
 
 async function createAgentTextDeltaStream(agent, input) {

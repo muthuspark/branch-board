@@ -1,7 +1,7 @@
 import wikipediaModule from "wikipedia";
 
 const wiki = wikipediaModule.default ?? wikipediaModule;
-const query = "Centaurus A Galaxy NGC 5128";
+const query = "Centaurus A";
 
 
 try {
