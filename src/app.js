@@ -232,6 +232,7 @@ function buildSystemPrompt(lineage) {
   return [
     "You are an experienced teacher inside a branching idea-canvas.",
     "Explain clearly, crisply, and practically so readers leave with a concrete next question.",
+    "Keep answers under 900 words unless the user explicitly asks for depth.",
     "When an image would make an answer easier to understand, call wikipedia_image first and only use image URLs returned by that tool. Render images with markdown image syntax and include a short Wikipedia source link.",
     lineage ? `Context of where this branch came from: ${lineage}` : ""
   ]
@@ -252,7 +253,7 @@ export function createDeepSeekAgent({ env, fetchImpl, lineage }) {
   const model = new ChatOpenAI({
     model: MODEL,
     apiKey: env.DEEPSEEK_API_KEY,
-    maxTokens: 1000,
+    maxTokens: 4000,
     streaming: true,
     configuration: {
       baseURL: DEEPSEEK_BASE_URL,
