@@ -1,9 +1,8 @@
 import wikipediaModule from "wikipedia";
 
 const wiki = wikipediaModule.default ?? wikipediaModule;
-const query =
-  process.argv.slice(2).join(" ").trim() ||
-  "World line Minkowski diagram";
+const query = "Centaurus A Galaxy NGC 5128";
+
 
 try {
   const searchResults = await wiki.search(query, { limit: 1 });

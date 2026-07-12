@@ -301,6 +301,16 @@
     border-radius:2px;
     white-space:pre-wrap;
   }
+  .msg.assistant img{
+    display:block;
+    max-width:100%;
+    max-height:280px;
+    object-fit:contain;
+    margin:0.75em 0;
+    border:1px solid var(--line);
+    border-radius:2px;
+    background:var(--paper);
+  }
   .msg.assistant.thinking{@apply text-text-soft italic;white-space:pre-wrap}
   .msg.assistant.error{
     color:var(--error-text);

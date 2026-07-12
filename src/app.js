@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ChatOpenAI } from "@langchain/openai";
-import { createAgent } from "langchain";
+import { createAgent, tool } from "langchain";
 
 import { createBoardStore } from "./board-store.js";
 import { createFileLogger } from "./file-logger.js";
@@ -232,6 +232,7 @@ function buildSystemPrompt(lineage) {
   return [
     "You are an experienced teacher inside a branching idea-canvas.",
     "Explain clearly, crisply, and practically so readers leave with a concrete next question.",
+    "When an image would make an answer easier to understand, call wikipedia_image first and only use image URLs returned by that tool. Render images with markdown image syntax and include a short Wikipedia source link.",
     lineage ? `Context of where this branch came from: ${lineage}` : ""
   ]
     .filter(Boolean)
@@ -261,9 +262,56 @@ export function createDeepSeekAgent({ env, fetchImpl, lineage }) {
 
   return createAgent({
     model,
-    tools: [],
+    tools: [createWikipediaImageTool(fetchImpl)],
     systemPrompt: buildSystemPrompt(lineage)
   });
+}
+
+function createWikipediaImageTool(fetchImpl) {
+  return tool(
+    async ({ query }) => {
+      const params = new URLSearchParams({
+        action: "query",
+        generator: "search",
+        gsrsearch: query,
+        gsrlimit: "1",
+        prop: "pageimages|extracts|info",
+        piprop: "original|thumbnail",
+        pithumbsize: "900",
+        exintro: "1",
+        explaintext: "1",
+        inprop: "url",
+        redirects: "1",
+        format: "json"
+      });
+      const response = await fetchImpl(`https://en.wikipedia.org/w/api.php?${params}`);
+      if (!response.ok) return "No Wikipedia image found.";
+      const data = await response.json();
+      const page = Object.values(data.query?.pages || {})[0];
+      const imageUrl = page?.original?.source || page?.thumbnail?.source;
+      if (!page || !imageUrl) return "No Wikipedia image found.";
+      return JSON.stringify({
+        title: page.title,
+        imageUrl,
+        pageUrl: page.fullurl,
+        caption: page.extract || page.title
+      });
+    },
+    {
+      name: "wikipedia_image",
+      description: "Find a relevant Wikipedia image for a topic. Returns a verified image URL and source page URL.",
+      schema: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Topic to search on Wikipedia"
+          }
+        },
+        required: ["query"]
+      }
+    }
+  );
 }
 
 async function createAgentTextDeltaStream(agent, input) {
