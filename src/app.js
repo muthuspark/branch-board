@@ -4,10 +4,13 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { ChatOpenAI } from "@langchain/openai";
+import { createAgent } from "langchain";
+
 import { createBoardStore } from "./board-store.js";
 import { createFileLogger } from "./file-logger.js";
 
-const DEEPSEEK_URL = "https://api.deepseek.com/chat/completions";
+const DEEPSEEK_BASE_URL = "https://api.deepseek.com";
 const MODEL = "deepseek-v4-flash";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -15,7 +18,7 @@ const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "..");
 const distDir = path.join(rootDir, "dist");
 
-export function createApp({ env = process.env, fetchImpl = fetch } = {}) {
+export function createApp({ env = process.env, fetchImpl = fetch, agentFactory = createDeepSeekAgent } = {}) {
   const app = express();
   const logger = createFileLogger(env.LOG_FILE || path.join(rootDir, "logs", "branchboard.log"));
   const boardStore = createBoardStore({
@@ -121,27 +124,8 @@ export function createApp({ env = process.env, fetchImpl = fetch } = {}) {
     }
 
     try {
-      const upstream = await fetchImpl(DEEPSEEK_URL, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${env.DEEPSEEK_API_KEY}`,
-          "content-type": "application/json"
-        },
-        body: JSON.stringify(buildDeepSeekPayload(question, lineage, history))
-      });
-
-      if (!upstream.ok) {
-        const body = await readResponseBody(upstream);
-        await log(logger, "deepseek_upstream_error", {
-          requestId,
-          status: upstream.status,
-          statusText: upstream.statusText || "-",
-          model: MODEL,
-          response: body,
-          durationMs: Date.now() - startedAt
-        });
-        return res.status(502).json({ error: "DeepSeek request failed." });
-      }
+      const agent = agentFactory({ env, fetchImpl, lineage });
+      const deltas = await createAgentTextDeltaStream(agent, buildAgentInput(question, history));
 
       res.status(200);
       res.set({
@@ -153,7 +137,7 @@ export function createApp({ env = process.env, fetchImpl = fetch } = {}) {
       res.flushHeaders?.();
 
       let responseLength = 0;
-      for await (const delta of streamDeepSeekDeltas(upstream.body)) {
+      for await (const delta of deltas) {
         responseLength += delta.length;
         res.write(`data: ${JSON.stringify({ delta })}\n\n`);
       }
@@ -170,7 +154,6 @@ export function createApp({ env = process.env, fetchImpl = fetch } = {}) {
 
       await log(logger, "chat_request_success", {
         requestId,
-        status: upstream.status,
         model: MODEL,
         responseLength,
         durationMs: Date.now() - startedAt
@@ -234,11 +217,6 @@ async function log(logger, event, fields) {
   }
 }
 
-async function readResponseBody(response) {
-  const text = await response.text().catch(() => "");
-  return text.slice(0, 2000);
-}
-
 function normalizeChatHistory(value) {
   if (!Array.isArray(value)) return [];
   return value
@@ -250,72 +228,53 @@ function normalizeChatHistory(value) {
     .filter(message => message.content);
 }
 
-function buildDeepSeekPayload(question, lineage, history = []) {
-  const system = [
+function buildSystemPrompt(lineage) {
+  return [
     "You are an experienced teacher inside a branching idea-canvas.",
     "Explain clearly, crisply, and practically so readers leave with a concrete next question.",
     lineage ? `Context of where this branch came from: ${lineage}` : ""
   ]
     .filter(Boolean)
     .join(" ");
+}
 
+function buildAgentInput(question, history = []) {
   return {
-    model: MODEL,
-    max_tokens: 1000,
-    stream: true,
     messages: [
-      { role: "system", content: system },
       ...history,
       { role: "user", content: question }
     ]
   };
 }
 
-async function* streamDeepSeekDeltas(body) {
-  if (!body) return;
-  const decoder = new TextDecoder();
-  const reader = body.getReader();
-  let buffer = "";
-  let dataLines = [];
-
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-
-    let newlineIndex;
-    while ((newlineIndex = buffer.search(/\r?\n/)) !== -1) {
-      const line = buffer.slice(0, newlineIndex).replace(/\r$/, "");
-      buffer = buffer.slice(line.length + (buffer[line.length] === "\r" ? 2 : 1));
-
-      if (!line) {
-        const eventData = dataLines.join("\n");
-        dataLines = [];
-        if (eventData === "[DONE]") return;
-        const delta = parseDeepSeekStreamData(eventData);
-        if (delta) yield delta;
-        continue;
-      }
-
-      if (line.startsWith("data:")) {
-        dataLines.push(line.slice(5).trimStart());
-      }
+export function createDeepSeekAgent({ env, fetchImpl, lineage }) {
+  const model = new ChatOpenAI({
+    model: MODEL,
+    apiKey: env.DEEPSEEK_API_KEY,
+    maxTokens: 1000,
+    streaming: true,
+    configuration: {
+      baseURL: DEEPSEEK_BASE_URL,
+      fetch: fetchImpl
     }
-  }
+  });
 
-  buffer += decoder.decode();
-  if (buffer.startsWith("data:")) {
-    dataLines.push(buffer.slice(5).trimStart());
-  }
-  const eventData = dataLines.join("\n");
-  if (eventData && eventData !== "[DONE]") {
-    const delta = parseDeepSeekStreamData(eventData);
-    if (delta) yield delta;
-  }
+  return createAgent({
+    model,
+    tools: [],
+    systemPrompt: buildSystemPrompt(lineage)
+  });
 }
 
-function parseDeepSeekStreamData(data) {
-  if (!data) return "";
-  const parsed = JSON.parse(data);
-  return parsed?.choices?.[0]?.delta?.content || parsed?.choices?.[0]?.message?.content || "";
+async function createAgentTextDeltaStream(agent, input) {
+  const run = await agent.streamEvents(input, { version: "v3" });
+  return streamAgentTextDeltas(run);
+}
+
+async function* streamAgentTextDeltas(run) {
+  for await (const message of run.messages) {
+    for await (const delta of message.text) {
+      if (delta) yield delta;
+    }
+  }
 }

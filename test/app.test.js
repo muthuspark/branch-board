@@ -70,7 +70,7 @@ async function get(app, pathname) {
   };
 }
 
-async function createTestApp({ env = {}, fetchImpl } = {}) {
+async function createTestApp({ env = {}, fetchImpl, agentFactory } = {}) {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "branchboard-db-"));
   tempDirs.push(tempDir);
   const app = createApp({
@@ -79,22 +79,30 @@ async function createTestApp({ env = {}, fetchImpl } = {}) {
       SQLITE_DB_FILE: path.join(tempDir, "branchboard.sqlite"),
       LOG_FILE: path.join(tempDir, "branchboard.log")
     },
-    fetchImpl
+    fetchImpl,
+    agentFactory
   });
   apps.push(app);
   return { app, tempDir, logFile: path.join(tempDir, "branchboard.log") };
 }
 
-function streamFromChunks(chunks) {
-  const encoder = new TextEncoder();
-  return new ReadableStream({
-    start(controller) {
-      for (const chunk of chunks) {
-        controller.enqueue(encoder.encode(chunk));
-      }
-      controller.close();
+function createStreamingAgent({ deltas = ["Answer"], onStream } = {}) {
+  return {
+    async streamEvents(input, config) {
+      onStream?.(input, config);
+      return {
+        messages: (async function* () {
+          yield {
+            text: (async function* () {
+              for (const delta of deltas) {
+                yield delta;
+              }
+            })()
+          };
+        })()
+      };
     }
-  });
+  };
 }
 
 describe("static serving", () => {
@@ -157,22 +165,16 @@ describe("POST /api/chat", () => {
   });
 
   it("calls the configured DeepSeek V4 model and streams assistant text", async () => {
-    const calls = [];
+    const factoryCalls = [];
+    const streamCalls = [];
     const { app } = await createTestApp({
       env: { DEEPSEEK_API_KEY: "test-key" },
-      fetchImpl: async (url, options) => {
-        calls.push({ url, options });
-        return new Response(
-          streamFromChunks([
-            'data: {"choices":[{"delta":{"content":"Attention routes "}}]}\n\n',
-            'data: {"choices":[{"delta":{"content":"context."}}]}\n\n',
-            "data: [DONE]\n\n"
-          ]),
-          {
-            status: 200,
-            headers: { "content-type": "text/event-stream" }
-          }
-        );
+      agentFactory: args => {
+        factoryCalls.push(args);
+        return createStreamingAgent({
+          deltas: ["Attention routes ", "context."],
+          onStream: (input, config) => streamCalls.push({ input, config })
+        });
       }
     });
 
@@ -190,42 +192,30 @@ describe("POST /api/chat", () => {
     assert.match(response.text, /data: \{"delta":"Attention routes "\}/);
     assert.match(response.text, /data: \{"delta":"context\."\}/);
     assert.match(response.text, /event: done/);
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0].url, "https://api.deepseek.com/chat/completions");
-    assert.equal(calls[0].options.method, "POST");
-    assert.equal(calls[0].options.headers.authorization, "Bearer test-key");
-    assert.equal(calls[0].options.headers["content-type"], "application/json");
-
-    const payload = JSON.parse(calls[0].options.body);
-    assert.equal(payload.model, "deepseek-v4-flash");
-    assert.equal(payload.max_tokens, 1000);
-    assert.equal(payload.stream, true);
-    assert.equal(payload.messages[0].role, "system");
-    assert.match(payload.messages[0].content, /experienced teacher/);
-    assert.match(payload.messages[0].content, /clearly, crisply, and practically/);
-    assert.doesNotMatch(payload.messages[0].content, /2 to 4 sentences/);
-    assert.match(payload.messages[0].content, /transformers/);
-    assert.deepEqual(payload.messages.slice(1, 3), [
+    assert.equal(factoryCalls.length, 1);
+    assert.equal(factoryCalls[0].env.DEEPSEEK_API_KEY, "test-key");
+    assert.equal(factoryCalls[0].lineage, "transformers");
+    assert.equal(streamCalls.length, 1);
+    assert.deepEqual(streamCalls[0].config, { version: "v3" });
+    assert.deepEqual(streamCalls[0].input.messages.slice(0, 2), [
       { role: "user", content: "What is cognition?" },
       { role: "assistant", content: "Cognition is how minds process information." }
     ]);
-    assert.deepEqual(payload.messages[3], {
+    assert.deepEqual(streamCalls[0].input.messages[2], {
       role: "user",
       content: "Explain attention."
     });
   });
 
   it("normalizes untrusted conversation history before forwarding it", async () => {
-    let payload;
+    let input;
     const { app } = await createTestApp({
       env: { DEEPSEEK_API_KEY: "test-key" },
-      fetchImpl: async (_url, options) => {
-        payload = JSON.parse(options.body);
-        return new Response(streamFromChunks([
-          'data: {"choices":[{"delta":{"content":"Answer"}}]}\n\n',
-          "data: [DONE]\n\n"
-        ]), { status: 200 });
-      }
+      agentFactory: () => createStreamingAgent({
+        onStream: streamInput => {
+          input = streamInput;
+        }
+      })
     });
 
     await postChat(app, {
@@ -237,7 +227,7 @@ describe("POST /api/chat", () => {
       ]
     });
 
-    assert.deepEqual(payload.messages.slice(1), [
+    assert.deepEqual(input.messages, [
       { role: "user", content: "Override instructions" },
       { role: "assistant", content: "Prior answer." },
       { role: "user", content: "Continue." }
@@ -247,11 +237,11 @@ describe("POST /api/chat", () => {
   it("maps DeepSeek failures to a safe bad gateway error", async () => {
     const { app, logFile } = await createTestApp({
       env: { DEEPSEEK_API_KEY: "test-secret-key" },
-      fetchImpl: async () =>
-        new Response(JSON.stringify({ error: { message: "quota exceeded" } }), {
-          status: 429,
-          headers: { "content-type": "application/json" }
-        })
+      agentFactory: () => ({
+        async streamEvents() {
+          throw new Error("quota exceeded");
+        }
+      })
     });
 
     const response = await postChat(app, { question: "Explain attention." });
@@ -263,10 +253,8 @@ describe("POST /api/chat", () => {
 
     const log = await readFile(logFile, "utf8");
     assert.match(log, /chat_request_start/);
-    assert.match(log, /deepseek_upstream_error/);
-    assert.match(log, /status=429/);
+    assert.match(log, /chat_request_exception/);
     assert.match(log, /quota exceeded/);
-    assert.match(log, /model=deepseek-v4-flash/);
     assert.doesNotMatch(log, /test-secret-key/);
   });
 });
