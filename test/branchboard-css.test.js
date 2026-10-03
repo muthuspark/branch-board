@@ -45,8 +45,8 @@ describe("Branchboard Vue/Vite structure", () => {
     assert.equal(packageJson.devDependencies["@tailwindcss/vite"].startsWith("^"), true);
     assert.match(tailwindCss, /@import "tailwindcss"/);
     assert.match(tailwindCss, /@theme/);
-    assert.match(tailwindCss, /--color-ink:\s*oklch\(13% 0\.006 245\)/);
-    assert.match(tailwindCss, /--accent:\s*oklch\(76% 0\.12 78\)/);
+    assert.match(tailwindCss, /--color-ink:\s*oklch\(97% 0\.006 85\)/);
+    assert.match(tailwindCss, /--accent:\s*oklch\(62% 0\.13 78\)/);
     assert.match(tailwindCss, /@layer components/);
     assert.match(ruleFor(".node"), /@apply/);
   });
@@ -65,7 +65,7 @@ describe("Branchboard cursor affordances", () => {
     assert.match(ruleFor(".node__foot textarea"), /cursor\s*:\s*text/);
   });
 
-  it("styles the node body scrollbar as an embedded dark control", () => {
+  it("styles the node body scrollbar as an embedded control", () => {
     assert.match(ruleFor(".node__body"), /scrollbar-color\s*:\s*var\(--scrollbar-thumb\)\s+var\(--scrollbar-track\)/);
     assert.match(ruleFor(".node__body::-webkit-scrollbar"), /width\s*:\s*14px/);
     assert.match(ruleFor(".node__body::-webkit-scrollbar-track"), /background\s*:\s*var\(--scrollbar-track\)/);
@@ -83,14 +83,15 @@ describe("Branchboard cursor affordances", () => {
   });
 });
 
-describe("Branchboard wheel interactions", () => {
-  it("disables wheel and pinch zoom while retaining explicit zoom controls", () => {
-    assert.doesNotMatch(appVue, /@wheel/);
-    assert.doesNotMatch(appVue, /function handleViewportWheel/);
-    assert.doesNotMatch(appVue, /function zoomCanvas/);
-    assert.match(appVue, /id="btn-zoomout"[\s\S]*@click="zoomBy\(1 \/ 1\.15\)"/);
-    assert.match(appVue, /id="btn-zoomin"[\s\S]*@click="zoomBy\(1\.15\)"/);
-    assert.match(appVue, /use <b>− \/ \+<\/b> to zoom/);
+describe("Branchboard chat workspace", () => {
+  it("uses horizontal chat columns instead of canvas navigation", () => {
+    assert.match(appVue, /id="chat-workspace"/);
+    assert.match(appVue, /class="chat-columns"/);
+    assert.match(appVue, /v-for="node in orderedNodes"/);
+    assert.match(appVue, /const orderedNodes = computed/);
+    assert.doesNotMatch(appVue, /id="btn-zoomout"/);
+    assert.doesNotMatch(appVue, /id="viewport"/);
+    assert.match(style, /\.chat-columns\{[\s\S]*overflow-x:auto/);
   });
 });
 
@@ -99,32 +100,27 @@ describe("Branchboard accessibility hardening", () => {
     assert.match(appVue, /class="sr-only"/);
     assert.match(appVue, /aria-label="Explore selected answer text"/);
     assert.match(appVue, /:data-node-id="node\.id"/);
-    assert.match(appVue, /:aria-label="node\.parent \? 'Ask about this note' : 'Ask your first question'"/);
+    assert.match(appVue, /:aria-label="node\.parent \? 'Ask about this branch' : 'Ask your first question'"/);
     assert.match(appVue, /tabindex="0"/);
     assert.match(appVue, /role="group"/);
   });
 
-  it("supports keyboard movement for canvas and focused nodes", () => {
-    assert.match(appVue, /function handleCanvasKeyboard\(event\)/);
-    assert.match(appVue, /window\.addEventListener\("keydown", handleCanvasKeyboard\)/);
-    assert.match(appVue, /event\.altKey/);
-    assert.match(appVue, /moveFocusedNode\(dx, dy\)/);
-    assert.match(appVue, /ArrowLeft/);
+  it("does not reserve arrow keys for spatial navigation", () => {
+    assert.doesNotMatch(appVue, /window\.addEventListener\("keydown", handleCanvasKeyboard\)/);
   });
 });
 
 describe("Branchboard node deletion", () => {
-  it("provides a quiet destructive action in each node header", () => {
-    const nodeBar = appVue.match(/<div class="node__bar"[\s\S]*?<\/div>\n\n\s*<div class="node__body"/)?.[0] ?? "";
+  it("places branch deletion in its source strip", () => {
+    const branchSource = appVue.match(/<div v-if="node\.parent" class="branch-source">([\s\S]*?)<\/div>/)?.[0] ?? "";
 
-    assert.match(nodeBar, /type="button"/);
-    assert.match(nodeBar, /class="node__delete"/);
-    assert.match(nodeBar, /aria-label="Delete note"/);
-    assert.match(nodeBar, /title="Delete note"/);
-    assert.match(nodeBar, /@pointerdown\.stop/);
-    assert.match(nodeBar, /@click\.stop="deleteNode\(node\)"/);
-    assert.match(nodeBar, /<Trash2/);
-    assert.match(ruleFor(".node__delete"), /min-height\s*:\s*32px/);
+    assert.match(branchSource, /type="button"/);
+    assert.match(branchSource, /class="node__delete"/);
+    assert.match(branchSource, /aria-label="Delete chat"/);
+    assert.match(branchSource, /title="Delete chat"/);
+    assert.match(branchSource, /@click\.stop="deleteNode\(node\)"/);
+    assert.match(branchSource, /<Trash2/);
+    assert.match(style, /\.node__delete\{[\s\S]*min-height:36px/);
   });
 
   it("deletes the selected node with descendants, connected edges, focus, and pending branch UI", () => {
@@ -175,49 +171,38 @@ describe("Branchboard first screen", () => {
 
 describe("Branchboard multiple board persistence", () => {
   it("provides one board switcher with contextual rename and delete actions", () => {
-    assert.match(appVue, /id="board-controls"/);
     assert.match(appVue, /id="workspace-controls"/);
+    assert.match(appVue, /id="board-switcher"/);
     assert.match(appVue, /v-model="activeBoardId"/);
     assert.match(appVue, /@change="openSelectedBoard"/);
-    assert.match(appVue, /@click="createNewBoard"/);
+    assert.match(appVue, /@click="openNewBoardDialog"/);
     assert.match(appVue, /@click="startBoardRename"/);
     assert.match(appVue, /v-if="isRenamingBoard"/);
-    assert.match(appVue, /@keydown\.enter\.prevent="finishBoardRename"/);
     assert.match(appVue, /@keydown\.escape\.prevent="cancelBoardRename"/);
     assert.match(appVue, /@click="deleteActiveBoard"/);
   });
 
-  it("keeps destructive board actions out of the canvas toolbar", () => {
-    const bottomControls = appVue.match(/<div id="bottom-controls">([\s\S]*?)<\/div>\n\s*<\/div>/)?.[1] ?? "";
-    const boardControls = appVue.match(/<details id="board-controls"([\s\S]*?)<\/details>/)?.[1] ?? "";
-
+  it("keeps board actions together in the masthead", () => {
     assert.match(appVue, /<div id="workspace-controls"/);
-    assert.doesNotMatch(bottomControls, /id="board-controls"/);
-    assert.match(bottomControls, /id="hud"/);
-    assert.doesNotMatch(bottomControls, /deleteActiveBoard/);
-    assert.doesNotMatch(bottomControls, /id="btn-delete-board"/);
-    assert.match(boardControls, /<summary/);
-    assert.match(boardControls, /id="board-menu"/);
-    assert.match(boardControls, /@click="createNewBoard"/);
-    assert.match(boardControls, /@click="deleteActiveBoard"/);
-    assert.match(boardControls, /class="board-menu__button danger"/);
+    assert.match(appVue, /id="board-switcher"/);
+    assert.match(appVue, /class="new-board"/);
+    assert.match(appVue, /class="board-actions"/);
+    assert.match(appVue, /@click="deleteActiveBoard"/);
+    assert.match(appVue, /class="board-action danger"/);
   });
 
-  it("keeps open board menus visually quiet instead of adding nested amber frames", () => {
-    assert.doesNotMatch(ruleFor("#board-controls[open] summary"), /border-color\s*:\s*var\(--focus\)/);
+  it("uses one native board menu rather than nested menus", () => {
+    assert.doesNotMatch(appVue, /<details id="board-controls"/);
+    assert.doesNotMatch(appVue, /id="board-menu"/);
   });
 
   it("uses the active board title as the top-left workspace identity", () => {
-    const boardControls = appVue.match(/<details id="board-controls"([\s\S]*?)<\/details>/)?.[1] ?? "";
-    const modeControls = appVue.match(/<div id="mode"[\s\S]*?<\/div>/)?.[0] ?? "";
-
     assert.doesNotMatch(appVue, /id="brand"/);
     assert.doesNotMatch(appVue, /<h1>Branchboard<\/h1>/);
     assert.match(ruleFor("#workspace-controls"), /@apply[^}]*top-\[18px\]/);
-    assert.match(boardControls, /<summary aria-label="Open board history"/);
-    assert.match(boardControls, /id="board-title"/);
-    assert.doesNotMatch(boardControls, /id="save-status"/);
-    assert.match(modeControls, /id="save-status"/);
+    assert.match(appVue, /id="board-switcher"/);
+    assert.doesNotMatch(appVue, /id="save-status"/);
+    assert.doesNotMatch(appVue, /Answers paused/);
   });
 
   it("loads persisted boards on startup before falling back to a root node", () => {
@@ -229,12 +214,9 @@ describe("Branchboard multiple board persistence", () => {
     assert.match(appVue, /nextTick\(ensureRestoredBoardVisible\)/);
   });
 
-  it("recovers saved camera states that reopen as an empty black canvas", () => {
-    assert.match(appVue, /function ensureRestoredBoardVisible\(\)/);
-    assert.match(appVue, /if \(cam\.scale <= 0\.35\)/);
-    assert.match(appVue, /centerOn\(nodes\.value\[0\], 0\.75\)/);
-    assert.match(appVue, /const hasVisibleNode = nodes\.value\.some/);
-    assert.match(appVue, /if \(!hasVisibleNode\) centerOn\(nodes\.value\[0\], Math\.max\(cam\.scale, 0\.75\)\)/);
+  it("restores saved chats into the chat workspace", () => {
+    assert.match(appVue, /function restoreBoardState\(state\)/);
+    assert.match(appVue, /focusNode\(nodes\.value\[0\]\.id\)/);
   });
 
   it("serializes board state without parent cycles and debounces active board saves", () => {
@@ -302,10 +284,10 @@ describe("Branchboard multiple board persistence", () => {
     assert.match(branchFromSelection, /revealNodeForInput\(child\)/);
   });
 
-  it("centers a new branch after render and focuses its prompt without changing zoom", () => {
+  it("reveals a new branch column after render and focuses its prompt", () => {
     assert.match(appVue, /async function revealNodeForInput\(node\)/);
     assert.match(appVue, /await nextTick\(\)/);
-    assert.match(appVue, /centerOn\(node, cam\.scale\)/);
+    assert.match(appVue, /scrollIntoView\(\{ behavior: "smooth", block: "nearest", inline: "nearest" \}\)/);
     assert.match(appVue, /querySelector\("textarea"\)\?\.focus\(\{ preventScroll: true \}\)/);
   });
 
@@ -361,18 +343,13 @@ describe("Branchboard answer loading state", () => {
 
 describe("Branchboard plain-language copy", () => {
   it("uses non-technical visible labels for everyday users", () => {
-    assert.match(appVue, /Ready/);
-    assert.match(appVue, /Answers paused/);
-    assert.match(appVue, /Start here/);
+    assert.match(appVue, /New board/);
+    assert.match(appVue, /Main chat/);
     assert.match(appVue, /Explore this/);
     assert.doesNotMatch(appVue, /\+ New question/);
     assert.doesNotMatch(appVue, /id="btn-new"/);
-    assert.match(appVue, /aria-label="New board"/);
-    assert.match(appVue, /aria-label="Show all"/);
-    assert.match(appVue, /aria-label="Smaller"/);
-    assert.match(appVue, /aria-label="Bigger"/);
-    assert.match(appVue, /aria-label="Center"/);
-    assert.match(appVue, /aria-label="Delete board"/);
+    assert.match(appVue, /class="new-board"/);
+    assert.match(appVue, /class="board-action danger"/);
     assert.doesNotMatch(appVue, />New board<\/button>/);
     assert.doesNotMatch(appVue, />Show all<\/button>/);
     assert.doesNotMatch(appVue, />Smaller<\/button>/);
@@ -380,9 +357,7 @@ describe("Branchboard plain-language copy", () => {
     assert.doesNotMatch(appVue, />Center<\/button>/);
     assert.doesNotMatch(appVue, />Delete board<\/button>/);
     assert.match(appVue, /displayNodeLabel\(node\.id\)/);
-    assert.match(appVue, /<b>Drag<\/b> empty space to move around/);
-    assert.match(appVue, /use <b>− \/ \+<\/b> to zoom/);
-    assert.doesNotMatch(appVue, /Root thread|New root|Fit all|deepseek v4|local demo|Branch on this|pan the canvas|card's header/i);
+    assert.doesNotMatch(appVue, /Root thread|New root|Fit all|deepseek v4|local demo|pan the canvas|card's header/i);
   });
 });
 
@@ -399,57 +374,31 @@ describe("Branchboard markdown rendering", () => {
 describe("Branchboard responsive hardening", () => {
   it("uses responsive node sizing and touch targets", () => {
     assert.match(appVue, /const DEFAULT_NODE_W = 440/);
-    assert.match(style, /--node-w\s*:\s*440px/);
-    assert.match(style, /--node-max-w\s*:\s*90vw/);
-    assert.match(style, /--node-min-h\s*:\s*80vh/);
-    assert.match(style, /--node-max-h\s*:\s*calc\(100dvh - 32px\)/);
-    assert.match(ruleFor(".node"), /width\s*:\s*min\(var\(--node-w\),var\(--node-max-w\)\)/);
-    assert.match(ruleFor(".node"), /max-width\s*:\s*var\(--node-max-w\)/);
-    assert.match(ruleFor(".node"), /min-height\s*:\s*var\(--node-min-h\)/);
-    assert.match(ruleFor(".node"), /max-height\s*:\s*var\(--node-max-h\)/);
+    assert.match(style, /\.node\{[\s\S]*flex:0 0 min\(520px,calc\(100vw - 76px\)\)/);
     assert.match(ruleFor(".node__body"), /flex\s*:\s*1\s+1\s+auto/);
     assert.match(ruleFor(".ask"), /min-height\s*:\s*44px/);
     assert.match(ruleFor("#pill"), /min-height\s*:\s*44px/);
     assert.match(style, /@media\s*\(max-width:640px\)/);
-    assert.match(style, /--node-w\s*:\s*min\(440px,90vw\)/);
+    assert.match(style, /\.node\{flex-basis:calc\(100vw - 40px\)/);
   });
 
-  it("keeps bottom controls focused on canvas actions", () => {
-    assert.match(appVue, /id="bottom-controls"/);
+  it("keeps board controls separate from reading space", () => {
     assert.match(appVue, /id="workspace-controls"/);
-    assert.doesNotMatch(appVue, /<div class="sep"><\/div>\s*<button id="btn-fit"/);
-    assert.match(ruleFor("#bottom-controls"), /@apply[^}]*fixed/);
-    assert.match(ruleFor("#bottom-controls"), /@apply[^}]*left-5/);
-    assert.match(ruleFor("#bottom-controls"), /@apply[^}]*top-\[76px\]/);
-    assert.match(ruleFor("#bottom-controls"), /@apply[^}]*flex-col/);
-    assert.doesNotMatch(ruleFor("#bottom-controls"), /bottom-\[18px\]/);
-    assert.doesNotMatch(ruleFor("#bottom-controls"), /left-1\/2/);
-    assert.doesNotMatch(ruleFor("#bottom-controls"), /transform\s*:\s*translateX/);
-    assert.doesNotMatch(ruleFor("#hud"), /fixed/);
-    assert.match(ruleFor("#hud"), /@apply[^}]*flex-col/);
+    assert.doesNotMatch(appVue, /id="bottom-controls"/);
     assert.match(ruleFor("#workspace-controls"), /@apply[^}]*fixed/);
     assert.match(ruleFor("#board-menu"), /position\s*:\s*absolute/);
     assert.match(style, /@media \(max-width:640px\)[\s\S]*#bottom-controls/);
   });
 });
 
-describe("Branchboard canvas control icons", () => {
-  it("uses Lucide icons for canvas HUD actions with accessible names", () => {
+describe("Branchboard control icons", () => {
+  it("uses Lucide icons for board and chat actions", () => {
     assert.equal(packageJson.dependencies["@lucide/vue"].startsWith("^"), true);
     assert.match(appVue, /from "@lucide\/vue"/);
     assert.match(appVue, /<FilePlus2/);
-    assert.match(appVue, /<Maximize/);
-    assert.match(appVue, /<ZoomOut/);
-    assert.match(appVue, /<ZoomIn/);
-    assert.match(appVue, /<LocateFixed/);
     assert.match(appVue, /<Trash2/);
     assert.match(appVue, /aria-hidden="true"/);
-    assert.match(appVue, /title="New board"/);
-    assert.match(appVue, /title="Show all"/);
-    assert.match(appVue, /title="Smaller"/);
-    assert.match(appVue, /title="Bigger"/);
-    assert.match(appVue, /title="Center"/);
-    assert.match(appVue, /title="Delete board"/);
+    assert.match(appVue, /@click="deleteActiveBoard"/);
   });
 });
 

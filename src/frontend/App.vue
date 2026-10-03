@@ -1,139 +1,56 @@
 <template>
   <p class="sr-only" id="keyboard-help">
-    Use arrow keys to move around. Hold Alt and use arrow keys to move the selected note. Select part of an answer, then choose Explore this.
+    Select part of an answer, then choose Explore this to open a related chat beside this one.
   </p>
 
-  <div id="workspace-controls" aria-label="Board controls">
-    <details id="board-controls">
-      <summary aria-label="Open board history">
-        <span id="board-title">{{ activeBoardTitle }}</span>
-      </summary>
-      <div id="board-menu">
-        <label class="board-menu__label" for="board-switcher">Board</label>
+  <main id="chat-workspace" aria-label="Branchboard chats">
+    <header class="edition-masthead">
+      <div id="workspace-controls" aria-label="Board controls">
+        <label class="sr-only" for="board-switcher">Board</label>
         <select id="board-switcher" v-model="activeBoardId" @change="openSelectedBoard">
           <option v-for="board in boards" :key="board.id" :value="board.id">{{ board.title }}</option>
         </select>
-        <div class="board-menu__actions" aria-label="Board actions">
-          <button type="button" class="board-menu__button" aria-label="New board" title="New board" @click="createNewBoard">
-            <FilePlus2 aria-hidden="true" :size="16" :stroke-width="1.8" />
-            <span>New board</span>
-          </button>
-          <button type="button" class="board-menu__button" aria-label="Rename board" title="Rename board" @click="startBoardRename">
-            <Pencil aria-hidden="true" :size="16" :stroke-width="1.8" />
-            <span>Rename</span>
-          </button>
-          <button type="button" class="board-menu__button danger" aria-label="Delete board" title="Delete board" @click="deleteActiveBoard">
-            <Trash2 aria-hidden="true" :size="16" :stroke-width="1.8" />
-            <span>Delete</span>
-          </button>
-        </div>
-        <div v-if="isRenamingBoard" class="board-menu__rename">
-          <label class="sr-only" for="board-title-input">Board title</label>
-          <input
-            id="board-title-input"
-            v-model="activeBoardTitle"
-            @blur="finishBoardRename"
-            @change="finishBoardRename"
-            @keydown.enter.prevent="finishBoardRename"
-            @keydown.escape.prevent="cancelBoardRename"
-          />
+        <div class="board-actions" aria-label="Board actions">
+          <button type="button" class="board-action" @click="startBoardRename"><Pencil aria-hidden="true" :size="15" /> Rename</button>
+          <button type="button" class="board-action danger" @click="deleteActiveBoard"><Trash2 aria-hidden="true" :size="15" /> Delete</button>
         </div>
       </div>
-    </details>
-  </div>
-
-  <div id="mode" :class="mode">
-    <span class="beacon"></span>
-    <span id="mode-label">{{ mode === "live" ? "Ready" : "Answers paused" }}</span>
-    <span id="save-status" aria-live="polite">{{ saveStatus }}</span>
-  </div>
-
-  <div
-    id="viewport"
-    ref="viewportEl"
-    :class="{ panning: isPanning }"
-    :style="viewportStyle"
-    @pointerdown="startPan"
-    @pointermove="panCanvas"
-    @pointerup="endPan"
-    @pointercancel="endPan"
-    @dblclick="createNodeFromDoubleClick"
-  >
-    <div id="world" ref="worldEl" :style="worldStyle">
-      <svg id="edges">
-        <path
-          v-for="edge in edgePaths"
-          :key="`${edge.from}-${edge.to}`"
-          :d="edge.d"
-          fill="none"
-          stroke="var(--edge)"
-          stroke-width="1.5"
-          stroke-linecap="round"
-          opacity="0.54"
-        />
-      </svg>
-
+      <button type="button" class="new-board" @click="openNewBoardDialog">
+        <FilePlus2 aria-hidden="true" :size="16" :stroke-width="1.8" /> New board
+      </button>
+    </header>
+    <div class="chat-columns">
       <article
-        v-for="node in nodes"
+        v-for="node in orderedNodes"
         :key="node.id"
         :ref="setNodeRef(node.id)"
         class="node"
         :class="{ focused: focusedId === node.id }"
         :data-node-id="node.id"
-        :style="{ left: `${node.x}px`, top: `${node.y}px` }"
         tabindex="0"
         role="group"
         aria-describedby="keyboard-help"
-        :aria-label="node.parent ? `${displayNodeLabel(node.id)} about ${trim(node.fromText, 50)}` : `${displayNodeLabel(node.id)}, start here`"
+        :aria-label="node.parent ? `${displayNodeLabel(node.id)} about ${trim(node.fromText, 50)}` : 'Main chat'"
         :aria-busy="node.pending"
-        @pointerdown.capture="focusNode(node.id)"
         @focusin="focusNode(node.id)"
       >
-        <div class="node__bar" @pointerdown="startNodeDrag($event, node)">
-          <span class="dot"></span>
-          <span class="node__from">
-            <template v-if="node.parent">About <b>&ldquo;{{ trim(node.fromText, 34) }}&rdquo;</b></template>
-            <template v-else>Start here</template>
-          </span>
-          <span class="node__id">{{ displayNodeLabel(node.id) }}</span>
-          <button
-            type="button"
-            class="node__delete"
-            aria-label="Delete note"
-            title="Delete note"
-            @pointerdown.stop
-            @click.stop="deleteNode(node)"
-          >
+        <div v-if="node.parent" class="branch-source">
+          <span>{{ trim(node.fromText, 120) }}</span>
+          <button type="button" class="node__delete" aria-label="Delete chat" title="Delete chat" @click.stop="deleteNode(node)">
             <Trash2 aria-hidden="true" :size="15" :stroke-width="1.8" />
           </button>
         </div>
-
-        <div class="node__body" :ref="setBodyRef(node.id)">
-          <div
-            v-for="message in node.messages"
-            :key="message.id"
-            class="msg"
-            :class="[message.role, { thinking: message.thinking, error: message.error }]"
-            v-html="message.html"
-          ></div>
+        <div class="node__body">
+          <div v-for="message in node.messages" :key="message.id" class="msg" :class="[message.role, { thinking: message.thinking, error: message.error }]" v-html="message.html"></div>
         </div>
 
         <div class="node__foot">
-          <textarea
-            v-model="node.draft"
-            rows="1"
-            :aria-label="node.parent ? 'Ask about this note' : 'Ask your first question'"
-            :placeholder="node.parent ? 'Ask about this...' : 'Ask your first question...'"
-            @input="handleDraftInput(node, $event)"
-            @keydown.enter.exact.prevent="sendQuestion(node)"
-          ></textarea>
-          <button class="ask" :disabled="node.pending || !node.draft.trim()" @click="sendQuestion(node)">
-            {{ node.pending ? "Thinking" : "Ask" }}
-          </button>
+          <textarea :id="`chat-input-${node.id}`" :name="`chat-input-${node.id}`" v-model="node.draft" rows="1" :aria-label="node.parent ? 'Ask about this branch' : 'Ask your first question'" :placeholder="node.parent ? 'Continue this branch...' : 'Ask anything...'" @input="handleDraftInput(node, $event)" @keydown.enter.exact.prevent="sendQuestion(node)"></textarea>
+          <button class="ask" :disabled="node.pending || !node.draft.trim()" @click="sendQuestion(node)">{{ node.pending ? "Thinking" : "Send" }}</button>
         </div>
       </article>
     </div>
-  </div>
+  </main>
 
   <button
     id="pill"
@@ -147,21 +64,29 @@
     <span class="k">↳</span> Explore this
   </button>
 
-  <div id="bottom-controls">
-    <div id="hud" aria-label="Canvas controls">
-      <button id="btn-fit" type="button" aria-label="Show all" title="Show all" @click="fitAll">
-        <Maximize aria-hidden="true" :size="18" :stroke-width="1.8" />
-      </button>
-      <button id="btn-zoomout" type="button" aria-label="Smaller" title="Smaller" @click="zoomBy(1 / 1.15)">
-        <ZoomOut aria-hidden="true" :size="18" :stroke-width="1.8" />
-      </button>
-      <button id="btn-zoomin" type="button" aria-label="Bigger" title="Bigger" @click="zoomBy(1.15)">
-        <ZoomIn aria-hidden="true" :size="18" :stroke-width="1.8" />
-      </button>
-      <button id="btn-reset" type="button" aria-label="Center" title="Center" @click="resetView">
-        <LocateFixed aria-hidden="true" :size="18" :stroke-width="1.8" />
-      </button>
-    </div>
+  <div v-if="newBoardDialog.open" class="confirm" role="dialog" aria-modal="true" aria-labelledby="new-board-title" @click.self="closeNewBoardDialog">
+    <form class="confirm__panel" @submit.prevent="startNewBoard">
+      <h2 id="new-board-title">Start a new board</h2>
+      <p>What would you like to explore?</p>
+      <label class="sr-only" for="new-board-question">First question</label>
+      <textarea id="new-board-question" v-model="newBoardDialog.question" rows="3" placeholder="Ask your first question..."></textarea>
+      <div class="confirm__actions">
+        <button type="button" class="confirm__button" @click="closeNewBoardDialog">Cancel</button>
+        <button type="submit" class="confirm__button primary" :disabled="!newBoardDialog.question.trim()">Start board</button>
+      </div>
+    </form>
+  </div>
+
+  <div v-if="isRenamingBoard" class="confirm" role="dialog" aria-modal="true" aria-labelledby="rename-board-title" @click.self="cancelBoardRename">
+    <form class="confirm__panel" @submit.prevent="finishBoardRename">
+      <h2 id="rename-board-title">Rename board</h2>
+      <label class="sr-only" for="board-title-input">Board title</label>
+      <input id="board-title-input" v-model="boardTitleDraft" @keydown.escape.prevent="cancelBoardRename" />
+      <div class="confirm__actions">
+        <button type="button" class="confirm__button" @click="cancelBoardRename">Cancel</button>
+        <button type="submit" class="confirm__button primary">Save name</button>
+      </div>
+    </form>
   </div>
 
   <div
@@ -186,12 +111,11 @@
     </div>
   </div>
 
-  <div id="hint"><b>Drag</b> empty space to move around · use <b>− / +</b> to zoom · scroll notes to read</div>
 </template>
 
 <script setup>
 import DOMPurify from "dompurify";
-import { FilePlus2, LocateFixed, Maximize, Pencil, Trash2, ZoomIn, ZoomOut } from "@lucide/vue";
+import { FilePlus2, Pencil, Trash2 } from "@lucide/vue";
 import { marked } from "marked";
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 
@@ -201,10 +125,6 @@ const DEFAULT_NODE_W = 440;
 const NODE_GAP = 72;
 const PLACEMENT_COLUMNS = 20;
 const PLACEMENT_ROWS = 20;
-const HUES = [258, 172, 38, 340, 200, 286, 120, 16];
-
-const viewportEl = ref(null);
-const worldEl = ref(null);
 const pillEl = ref(null);
 const confirmCancelEl = ref(null);
 const mode = ref("demo");
@@ -213,12 +133,12 @@ const activeBoardId = ref("");
 const committedBoardId = ref("");
 const activeBoardTitle = ref("Untitled board");
 const isRenamingBoard = ref(false);
+const boardTitleDraft = ref("");
 const saveStatus = ref("");
 const cam = reactive({ x: 0, y: 0, scale: 1 });
 const nodes = ref([]);
 const edges = ref([]);
 const nodeRefs = new Map();
-const bodyRefs = new Map();
 const manuallyRenamedBoards = new Set();
 const inFlightBoardSaves = new Map();
 const queuedBoardSaves = new Map();
@@ -229,6 +149,7 @@ const confirmDialog = reactive({
   confirmLabel: "Delete",
   resolve: null
 });
+const newBoardDialog = reactive({ open: false, question: "" });
 let uid = 0;
 let messageUid = 0;
 let focusedId = ref(null);
@@ -242,15 +163,6 @@ let isRestoringBoard = false;
 let boardTitleBeforeRename = "Untitled board";
 let focusBeforeConfirm = null;
 
-const worldStyle = computed(() => ({
-  transform: `translate(${cam.x}px,${cam.y}px) scale(${cam.scale})`
-}));
-
-const viewportStyle = computed(() => ({
-  backgroundPosition: `${cam.x}px ${cam.y}px`,
-  backgroundSize: `${26 * cam.scale}px ${26 * cam.scale}px`
-}));
-
 const pillStyle = computed(() => {
   if (!pendingSel.value) return { display: "none" };
   return {
@@ -260,35 +172,12 @@ const pillStyle = computed(() => {
   };
 });
 
-const edgePaths = computed(() =>
-  edges.value.map(edge => {
-    const from = nodes.value.find(node => node.id === edge.from);
-    const to = nodes.value.find(node => node.id === edge.to);
-    if (!from || !to) return { ...edge, d: "" };
-    const fromEl = nodeRefs.get(from.id);
-    const toEl = nodeRefs.get(to.id);
-    const ah = fromEl?.offsetHeight || 200;
-    const bh = toEl?.offsetHeight || 200;
-    const x1 = from.x + nodeWidth(from);
-    const y1 = from.y + Math.min(ah / 2, 60);
-    const x2 = to.x;
-    const y2 = to.y + Math.min(bh / 2, 60);
-    const dx = Math.max(50, (x2 - x1) * 0.5);
-    return { ...edge, d: `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}` };
-  })
-);
+const orderedNodes = computed(() => [...nodes.value].sort((a, b) => a.x - b.x || a.y - b.y));
 
 function setNodeRef(id) {
   return element => {
     if (element) nodeRefs.set(id, element);
     else nodeRefs.delete(id);
-  };
-}
-
-function setBodyRef(id) {
-  return element => {
-    if (element) bodyRefs.set(id, element);
-    else bodyRefs.delete(id);
   };
 }
 
@@ -330,24 +219,48 @@ async function refreshBoardList() {
   boards.value = Array.isArray(data.boards) ? data.boards : [];
 }
 
-async function createNewBoard() {
+async function createNewBoard(question = "") {
   if (!await flushActiveBoardSave()) return false;
   try {
     const board = await fetchJson("/api/boards", {
       method: "POST",
       body: JSON.stringify({
-        title: "Untitled board",
+        title: question ? trim(question, 48) : "Untitled board",
         state: createInitialBoardState()
       })
     });
     await refreshBoardList();
     loadBoardSnapshot(board);
     saveStatus.value = "Saved";
+    if (question) {
+      nextTick(() => {
+        const root = nodes.value[0];
+        if (!root) return;
+        root.draft = question;
+        sendQuestion(root);
+      });
+    }
     return true;
   } catch (_) {
     saveStatus.value = "Local save failed";
     return false;
   }
+}
+
+function openNewBoardDialog() {
+  newBoardDialog.question = "";
+  newBoardDialog.open = true;
+  nextTick(() => document.getElementById("new-board-question")?.focus());
+}
+
+function closeNewBoardDialog() {
+  newBoardDialog.open = false;
+}
+
+async function startNewBoard() {
+  const question = newBoardDialog.question.trim();
+  if (!question) return;
+  if (await createNewBoard(question)) closeNewBoardDialog();
 }
 
 async function openSelectedBoard() {
@@ -388,7 +301,6 @@ function restoreStartupRoot(status) {
   nodes.value = [];
   edges.value = [];
   nodeRefs.clear();
-  bodyRefs.clear();
   createRootNode();
   isRestoringBoard = false;
 }
@@ -412,18 +324,20 @@ function renameActiveBoard() {
 
 function startBoardRename() {
   boardTitleBeforeRename = activeBoardTitle.value;
+  boardTitleDraft.value = activeBoardTitle.value;
   isRenamingBoard.value = true;
   nextTick(() => document.getElementById("board-title-input")?.focus());
 }
 
 function finishBoardRename() {
   if (!isRenamingBoard.value) return;
+  activeBoardTitle.value = boardTitleDraft.value;
   isRenamingBoard.value = false;
   renameActiveBoard();
 }
 
 function cancelBoardRename() {
-  activeBoardTitle.value = boardTitleBeforeRename || "Untitled board";
+  boardTitleDraft.value = boardTitleBeforeRename || "Untitled board";
   isRenamingBoard.value = false;
 }
 
@@ -490,7 +404,6 @@ function restoreBoardState(state) {
   nodes.value = [];
   edges.value = [];
   nodeRefs.clear();
-  bodyRefs.clear();
   hidePill();
 
   const stateCam = isPlainObject(snapshot.cam) ? snapshot.cam : createInitialBoardState().cam;
@@ -836,7 +749,6 @@ async function deleteNode(node) {
   }
   for (const id of idsToDelete) {
     nodeRefs.delete(id);
-    bodyRefs.delete(id);
   }
   if (focusedId.value && idsToDelete.has(focusedId.value)) {
     focusedId.value = nodes.value[0]?.id || null;
@@ -1093,15 +1005,28 @@ function branchFromSelection() {
     parent,
     fromText: pendingSel.value.text
   });
+  placeBranchBesideParent(child, parent);
   hidePill();
   window.getSelection()?.removeAllRanges();
   revealNodeForInput(child);
 }
 
+function placeBranchBesideParent(child, parent) {
+  const columns = orderedNodes.value.filter(node => node.id !== child.id);
+  const parentIndex = columns.findIndex(node => node.id === parent.id);
+  columns.splice(parentIndex + 1, 0, child);
+  columns.forEach((node, index) => {
+    node.x = index * (DEFAULT_NODE_W + NODE_GAP);
+    node.y = 0;
+  });
+  scheduleBoardSave();
+}
+
 async function revealNodeForInput(node) {
   await nextTick();
-  centerOn(node, cam.scale);
-  nodeRefs.get(node.id)?.querySelector("textarea")?.focus({ preventScroll: true });
+  const column = nodeRefs.get(node.id);
+  column?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+  column?.querySelector("textarea")?.focus({ preventScroll: true });
   scrollNodeBody(node);
 }
 
@@ -1332,8 +1257,10 @@ function handleDraftInput(_node, event) {
 }
 
 function scrollNodeBody(node) {
-  const body = bodyRefs.get(node.id);
-  if (body) body.scrollTop = body.scrollHeight;
+  nodeRefs.get(node.id)?.querySelector(".node__foot")?.scrollIntoView({
+    block: "end",
+    inline: "nearest"
+  });
 }
 
 function trim(value, length) {
@@ -1365,13 +1292,11 @@ function finiteNumber(value, fallback) {
 
 onMounted(() => {
   document.addEventListener("selectionchange", handleSelectionChange);
-  window.addEventListener("keydown", handleCanvasKeyboard);
   initializeBoards();
 });
 
 onBeforeUnmount(() => {
   document.removeEventListener("selectionchange", handleSelectionChange);
-  window.removeEventListener("keydown", handleCanvasKeyboard);
   clearPendingSave();
 });
 </script>
