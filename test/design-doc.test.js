@@ -5,19 +5,19 @@ import { describe, it } from "node:test";
 const design = await readFile(new URL("../DESIGN.md", import.meta.url), "utf8");
 
 describe("DESIGN.md", () => {
-  it("documents the Branchboard design system in the expected section order", () => {
-    assert.match(design, /^---\nname: Branchboard/m);
-    assert.match(design, /colors:\n\s+ink:/);
-    assert.match(design, /typography:\n\s+body:/);
-    assert.match(design, /components:\n\s+button-primary:/);
+  it("documents the Pravah-inspired system used by Branchboard", () => {
+    assert.match(design, /^# Pravah — Style Reference/m);
+    assert.match(design, /Parchment\s+\|\s+`#f3f1ed`/);
+    assert.match(design, /Aubergine Black\s+\|\s+`#302023`/);
+    assert.match(design, /ABCfavorit Book/);
 
     const sections = [
-      "## 1. Overview",
-      "## 2. Colors",
-      "## 3. Typography",
-      "## 4. Elevation",
-      "## 5. Components",
-      "## 6. Do's and Don'ts"
+      "## Tokens — Colors",
+      "## Tokens — Typography",
+      "## Tokens — Spacing & Shapes",
+      "## Components",
+      "## Do's and Don'ts",
+      "## Surfaces"
     ];
     let previous = -1;
     for (const section of sections) {

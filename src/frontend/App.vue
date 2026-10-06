@@ -116,6 +116,8 @@
 <script setup>
 import DOMPurify from "dompurify";
 import { FilePlus2, Pencil, Trash2 } from "@lucide/vue";
+import katex from "katex";
+import "katex/dist/katex.min.css";
 import { marked } from "marked";
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 
@@ -623,12 +625,12 @@ function assistantMessage(answer) {
     id: `m${++messageUid}`,
     role: "assistant",
     text: answer,
-    html: renderAssistantMarkdown(answer, marked, DOMPurify)
+    html: renderAssistantMarkdown(answer, marked, DOMPurify, katex)
   };
 }
 
 function renderMessageHtml(role, text) {
-  return role === "assistant" ? renderAssistantMarkdown(text, marked, DOMPurify) : escapeHtml(text);
+  return role === "assistant" ? renderAssistantMarkdown(text, marked, DOMPurify, katex) : escapeHtml(text);
 }
 
 function createNode({ x, y, parent = null, fromText = null }) {

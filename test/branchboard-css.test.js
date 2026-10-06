@@ -45,41 +45,22 @@ describe("Branchboard Vue/Vite structure", () => {
     assert.equal(packageJson.devDependencies["@tailwindcss/vite"].startsWith("^"), true);
     assert.match(tailwindCss, /@import "tailwindcss"/);
     assert.match(tailwindCss, /@theme/);
-    assert.match(tailwindCss, /--color-ink:\s*oklch\(97% 0\.006 85\)/);
-    assert.match(tailwindCss, /--accent:\s*oklch\(62% 0\.13 78\)/);
-    assert.match(tailwindCss, /@layer components/);
-    assert.match(ruleFor(".node"), /@apply/);
+    assert.match(tailwindCss, /--color-parchment:\s*#f3f1ed/);
+    assert.match(tailwindCss, /--color-aubergine-black:\s*#302023/);
   });
 });
 
 describe("Branchboard cursor affordances", () => {
-  it("limits the draggable cursor to the node header", () => {
-    assert.match(ruleFor("#viewport"), /cursor\s*:\s*grab/);
-    assert.match(ruleFor(".node"), /cursor\s*:\s*default/);
-    assert.match(ruleFor(".node__bar"), /cursor\s*:\s*grab/);
-  });
-
-  it("keeps readable node content text-selectable by cursor affordance", () => {
+  it("keeps reading and writing surfaces text-selectable", () => {
     assert.match(ruleFor(".node__body"), /cursor\s*:\s*text/);
     assert.match(ruleFor(".msg"), /cursor\s*:\s*text/);
     assert.match(ruleFor(".node__foot textarea"), /cursor\s*:\s*text/);
   });
 
-  it("styles the node body scrollbar as an embedded control", () => {
-    assert.match(ruleFor(".node__body"), /scrollbar-color\s*:\s*var\(--scrollbar-thumb\)\s+var\(--scrollbar-track\)/);
-    assert.match(ruleFor(".node__body::-webkit-scrollbar"), /width\s*:\s*14px/);
-    assert.match(ruleFor(".node__body::-webkit-scrollbar-track"), /background\s*:\s*var\(--scrollbar-track\)/);
-    assert.match(ruleFor(".node__body::-webkit-scrollbar-thumb"), /background\s*:\s*var\(--scrollbar-thumb\)/);
-    assert.match(ruleFor(".node__body::-webkit-scrollbar-thumb"), /border-radius\s*:\s*var\(--radius-pill\)/);
-  });
-
-  it("keeps assistant markdown tables readable inside answer bubbles", () => {
-    assert.match(ruleFor(".msg.assistant table"), /display\s*:\s*block/);
-    assert.match(ruleFor(".msg.assistant table"), /overflow-x\s*:\s*auto/);
-    assert.match(ruleFor(".msg.assistant table"), /scrollbar-color\s*:\s*var\(--scrollbar-thumb\)\s+var\(--card-2\)/);
-    assert.match(ruleFor(".msg.assistant th,\n  .msg.assistant td"), /min-width\s*:\s*8rem/);
-    assert.match(ruleFor(".msg.assistant th,\n  .msg.assistant td"), /overflow-wrap\s*:\s*break-word/);
-    assert.match(ruleFor(".msg.assistant thead"), /background\s*:\s*var\(--paper\)/);
+  it("keeps assistant markdown tables structured and legible", () => {
+    assert.match(ruleFor(".msg.assistant table"), /border-collapse\s*:\s*collapse/);
+    assert.match(ruleFor(".msg.assistant th, .msg.assistant td"), /border\s*:\s*1px\s+solid\s+var\(--color-bone\)/);
+    assert.match(ruleFor(".msg.assistant th"), /background\s*:\s*var\(--color-pure-white\)/);
   });
 });
 
@@ -91,7 +72,7 @@ describe("Branchboard chat workspace", () => {
     assert.match(appVue, /const orderedNodes = computed/);
     assert.doesNotMatch(appVue, /id="btn-zoomout"/);
     assert.doesNotMatch(appVue, /id="viewport"/);
-    assert.match(style, /\.chat-columns\{[\s\S]*overflow-x:auto/);
+    assert.match(ruleFor(".chat-columns"), /overflow-x\s*:\s*auto/);
   });
 });
 
@@ -120,7 +101,7 @@ describe("Branchboard node deletion", () => {
     assert.match(branchSource, /title="Delete chat"/);
     assert.match(branchSource, /@click\.stop="deleteNode\(node\)"/);
     assert.match(branchSource, /<Trash2/);
-    assert.match(style, /\.node__delete\{[\s\S]*min-height:36px/);
+    assert.match(ruleFor(".node__delete"), /width\s*:\s*28px/);
   });
 
   it("deletes the selected node with descendants, connected edges, focus, and pending branch UI", () => {
@@ -199,7 +180,7 @@ describe("Branchboard multiple board persistence", () => {
   it("uses the active board title as the top-left workspace identity", () => {
     assert.doesNotMatch(appVue, /id="brand"/);
     assert.doesNotMatch(appVue, /<h1>Branchboard<\/h1>/);
-    assert.match(ruleFor("#workspace-controls"), /@apply[^}]*top-\[18px\]/);
+    assert.match(ruleFor("#workspace-controls"), /display\s*:\s*flex/);
     assert.match(appVue, /id="board-switcher"/);
     assert.doesNotMatch(appVue, /id="save-status"/);
     assert.doesNotMatch(appVue, /Answers paused/);
@@ -366,7 +347,7 @@ describe("Branchboard markdown rendering", () => {
     assert.match(appVue, /import \{ marked \} from "marked"/);
     assert.match(appVue, /import DOMPurify from "dompurify"/);
     assert.match(appVue, /from "\.\.\/\.\.\/public\/markdown-renderer\.js"/);
-    assert.match(appVue, /renderAssistantMarkdown\(answer, marked, DOMPurify\)/);
+    assert.match(appVue, /renderAssistantMarkdown\(answer, marked, DOMPurify, katex\)/);
     assert.match(appVue, /v-html="message\.html"/);
   });
 });
@@ -374,20 +355,18 @@ describe("Branchboard markdown rendering", () => {
 describe("Branchboard responsive hardening", () => {
   it("uses responsive node sizing and touch targets", () => {
     assert.match(appVue, /const DEFAULT_NODE_W = 440/);
-    assert.match(style, /\.node\{[\s\S]*flex:0 0 min\(520px,calc\(100vw - 76px\)\)/);
-    assert.match(ruleFor(".node__body"), /flex\s*:\s*1\s+1\s+auto/);
-    assert.match(ruleFor(".ask"), /min-height\s*:\s*44px/);
-    assert.match(ruleFor("#pill"), /min-height\s*:\s*44px/);
-    assert.match(style, /@media\s*\(max-width:640px\)/);
-    assert.match(style, /\.node\{flex-basis:calc\(100vw - 40px\)/);
+    assert.match(ruleFor(".node"), /flex\s*:\s*0\s+0\s+min\(380px/);
+    assert.match(ruleFor(".ask"), /min-height\s*:\s*42px/);
+    assert.match(style, /#pill\s*\{[^}]*min-height\s*:\s*38px/);
+    assert.match(style, /@media \(max-width: 700px\)/);
+    assert.match(style, /flex-basis: calc\(100vw - 48px\)/);
   });
 
   it("keeps board controls separate from reading space", () => {
     assert.match(appVue, /id="workspace-controls"/);
     assert.doesNotMatch(appVue, /id="bottom-controls"/);
-    assert.match(ruleFor("#workspace-controls"), /@apply[^}]*fixed/);
-    assert.match(ruleFor("#board-menu"), /position\s*:\s*absolute/);
-    assert.match(style, /@media \(max-width:640px\)[\s\S]*#bottom-controls/);
+    assert.match(ruleFor(".edition-masthead"), /border-bottom\s*:\s*1px\s+solid\s+var\(--color-bone\)/);
+    assert.match(ruleFor("#workspace-controls"), /min-width\s*:\s*0/);
   });
 });
 
@@ -413,26 +392,19 @@ describe("Branchboard token coverage", () => {
   });
 
   it("uses semantic typography tokens for dense product UI text", () => {
-    assert.match(style, /--type-body:\s*1rem/);
-    assert.match(style, /--type-label:\s*0\.875rem/);
-    assert.match(style, /--type-mono:\s*0\.75rem/);
-    assert.match(ruleFor(".msg"), /font-size\s*:\s*var\(--type-body\)/);
-    assert.match(ruleFor(".msg"), /line-height\s*:\s*var\(--leading-body\)/);
-    assert.match(ruleFor(".node__id"), /font-variant-numeric\s*:\s*tabular-nums/);
+    assert.match(style, /--font-main:/);
+    assert.match(ruleFor(".msg"), /font-size\s*:\s*15px/);
+    assert.match(ruleFor(".msg"), /line-height\s*:\s*1\.55/);
+    assert.match(ruleFor(".branch-source"), /font-size\s*:\s*13px/);
   });
 });
 
 describe("Branchboard visual style", () => {
-  it("uses a monochrome engineering workstation stylesheet", () => {
-    assert.doesNotMatch(style, /hsl\(/);
-    assert.doesNotMatch(style, /#5865F2|#2ED47A|#8f9bff/i);
-    assert.match(ruleFor(".node"), /border-radius\s*:\s*2px/);
-    assert.match(ruleFor(".node"), /box-shadow\s*:\s*none/);
-    assert.match(ruleFor(".node"), /border\s*:\s*1px\s+solid\s+var\(--line\)/);
-    assert.match(ruleFor("#viewport"), /background-color\s*:\s*var\(--ink\)/);
-    assert.doesNotMatch(ruleFor("#viewport"), /linear-gradient|radial-gradient|background-size/);
-    assert.doesNotMatch(ruleFor("#viewport::after"), /radial-gradient/);
-    assert.equal(ruleFor(".node::before"), "");
-    assert.match(ruleFor(".msg.user"), /border\s*:\s*1px\s+solid\s+var\(--line-strong\)/);
+  it("uses the restrained parchment dossier treatment", () => {
+    assert.doesNotMatch(style, /linear-gradient|radial-gradient/);
+    assert.match(ruleFor("#chat-workspace"), /background\s*:\s*var\(--color-parchment\)/);
+    assert.match(ruleFor(".node"), /border-left\s*:\s*1px\s+solid\s+var\(--color-bone\)/);
+    assert.match(ruleFor(".msg.user"), /border-bottom\s*:\s*1px\s+solid\s+var\(--color-ink-black\)/);
+    assert.match(ruleFor(".new-board, .board-action, .confirm__button, .ask, #pill"), /border-radius\s*:\s*100px/);
   });
 });

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { marked } from "marked";
+import katex from "katex";
 import { renderAssistantMarkdown } from "../public/markdown-renderer.js";
 
 const sanitizer = {
@@ -28,6 +29,14 @@ describe("Branchboard markdown rendering", () => {
     assert.match(html, /<table>/);
     assert.match(html, /<th>Camp<\/th>/);
     assert.match(html, /<td>Functionalism<\/td>/);
+  });
+
+  it("renders inline and display LaTex", () => {
+    const html = renderAssistantMarkdown("Inline $x^2$\n\n$$\\frac{1}{2}$$", marked, sanitizer, katex);
+
+    assert.match(html, /class="katex"/);
+    assert.match(html, /class="katex-display"/);
+    assert.doesNotMatch(html, /\$x\^2\$/);
   });
 
   it("sanitizes raw HTML from assistant markdown", () => {

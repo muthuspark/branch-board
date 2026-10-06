@@ -7,3 +7,5 @@ data/
 dist/
 artifacts/
 .DS_Store
+.claude
+.codex
